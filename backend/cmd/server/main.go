@@ -47,7 +47,10 @@ func main() {
 	log.Println("scanner ready")
 
 	// --- HTTP Server ---
-	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, "", cfg.AgentModel)
+	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, "", cfg.AgentModel,
+		cfg.BaseSepolia_RPC_URL, cfg.ProviderRegistryAddress,
+		cfg.EASSchemaUID, cfg.AgentWalletPrivateKey,
+	)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      handler,

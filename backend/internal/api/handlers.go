@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
 	"github.com/Arnab-Afk/hackx/backend/internal/agent"
+	"github.com/Arnab-Afk/hackx/backend/internal/auth"
+	"github.com/Arnab-Afk/hackx/backend/internal/chain"
 	"github.com/Arnab-Afk/hackx/backend/internal/container"
 	"github.com/Arnab-Afk/hackx/backend/internal/scanner"
 	"github.com/Arnab-Afk/hackx/backend/internal/store"
@@ -22,34 +27,97 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	mgr        *container.Manager
-	scanner    *scanner.Scanner
-	store      *store.Store
-	proxyURL   string
-	apiKey     string
-	agentModel string
+	mgr             *container.Manager
+	scanner         *scanner.Scanner
+	store           *store.Store
+	proxyURL        string
+	apiKey          string
+	agentModel      string
+	rpcURL          string
+	registryAddress string
+	easSchemaUID    string
+	agentWalletKey  string
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel string) http.Handler {
-	srv := &Server{mgr: mgr, scanner: sc, store: s, proxyURL: proxyURL, apiKey: apiKey, agentModel: agentModel}
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey string) http.Handler {
+	srv := &Server{
+		mgr:             mgr,
+		scanner:         sc,
+		store:           s,
+		proxyURL:        proxyURL,
+		apiKey:          apiKey,
+		agentModel:      agentModel,
+		rpcURL:          rpcURL,
+		registryAddress: registryAddress,
+		easSchemaUID:    easSchemaUID,
+		agentWalletKey:  agentWalletKey,
+	}
+
+	authMgr := auth.NewManager()
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 
+	// Wallet auth
+	r.Post("/auth/nonce", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Address string `json:"address"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Address == "" {
+			http.Error(w, "address is required", http.StatusBadRequest)
+			return
+		}
+		nonce := authMgr.IssueNonce(req.Address)
+		jsonResponse(w, http.StatusOK, map[string]string{"nonce": nonce, "address": req.Address})
+	})
+
+	r.Post("/auth/verify", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Address   string `json:"address"`
+			Nonce     string `json:"nonce"`
+			Signature string `json:"signature"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if err := authMgr.VerifySignature(req.Address, req.Nonce, req.Signature); err != nil {
+			http.Error(w, fmt.Sprintf("verification failed: %v", err), http.StatusUnauthorized)
+			return
+		}
+		jsonResponse(w, http.StatusOK, map[string]any{
+			"verified": true,
+			"address":  req.Address,
+		})
+	})
+
+	r.Get("/attestations/{sessionID}", srv.getAttestation)
 	r.Post("/teams", srv.createTeam)
 	r.Get("/teams/{teamID}", srv.getTeam)
 	r.Get("/teams/{teamID}/containers", srv.listContainers)
 
-	r.Post("/sessions", srv.createSession)
+	// Compute endpoints — protected by x402 payment middleware when a provider wallet is configured.
+	// If agentWalletKey is empty (dev mode), x402 is bypassed so the node still works without payment.
+	var computeMiddleware func(http.Handler) http.Handler
+	if srv.agentWalletKey != "" {
+		// 0.01 USDC per session (10_000 micro-USDC, 6 decimals)
+		requiredUsdc := big.NewInt(10_000)
+		providerWallet := deriveProviderWallet(srv.agentWalletKey)
+		computeMiddleware = x402Middleware(providerWallet, requiredUsdc, srv.rpcURL, srv.agentWalletKey)
+	} else {
+		computeMiddleware = func(next http.Handler) http.Handler { return next } // passthrough
+	}
+
+	r.With(computeMiddleware).Post("/sessions", srv.createSession)
 	r.Get("/sessions/{sessionID}", srv.getSession)
 	r.Get("/sessions/{sessionID}/stream", srv.streamSession)
 	r.Get("/sessions/{sessionID}/log", srv.getActionLog)
 
 	r.Delete("/containers/{containerID}", srv.destroyContainer)
 
-	r.Post("/workspaces", srv.allocateWorkspace)
+	r.With(computeMiddleware).Post("/workspaces", srv.allocateWorkspace)
 	r.Get("/workspaces/{containerID}/status", srv.workspaceStatus)
 	r.Get("/workspaces/{containerID}/ssh", srv.sshGateway) // WebSocket SSH terminal
 	r.Delete("/workspaces/{containerID}", srv.destroyWorkspace)
@@ -298,6 +366,17 @@ func (s *Server) destroyContainer(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// GET /attestations/:sessionID
+func (s *Server) getAttestation(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	att, err := s.store.GetAttestation(r.Context(), sessionID)
+	if err != nil {
+		http.Error(w, "attestation not found", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, http.StatusOK, att)
+}
+
 // runAgentSession runs the agent and publishes events to the session bus.
 func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	ctx := context.Background()
@@ -309,7 +388,7 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
 	}
 
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel)
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress)
 
 	// Forward events to bus
 	go func() {
@@ -334,9 +413,80 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	// Persist results
 	_ = s.store.UpdateSessionState(ctx, sessionID, state)
 	_ = s.store.SaveActionLog(ctx, sessionID, teamID, agentSess.Actions)
+
+	// Persist provider selection if one was made
+	if agentSess.SelectedProvider != nil {
+		p := agentSess.SelectedProvider
+		_ = s.store.SaveProviderSelection(ctx, &store.ProviderRecord{
+			SessionID:     sessionID,
+			Address:       p.Wallet.Hex(),
+			Endpoint:      p.Endpoint,
+			PricePerHour:  p.PricePerHour.String(),
+			JobsCompleted: p.JobsCompleted.Int64(),
+		})
+	}
+
+	// Submit EAS attestation if the session completed successfully and a wallet key is configured
+	if state == "completed" && s.agentWalletKey != "" {
+		go s.submitAttestation(sessionID, teamID, agentSess.Actions)
+	}
+}
+
+func (s *Server) submitAttestation(sessionID, teamID string, actions []agent.Action) {
+	ctx := context.Background()
+
+	// Compute Merkle root from action hashes
+	var hashes []string
+	for _, a := range actions {
+		hashes = append(hashes, a.Hash)
+	}
+	merkleRoot := chain.ComputeMerkleRoot(hashes)
+
+	// Container state hash: keccak256 of all action hashes concatenated
+	var containerStateHash [32]byte
+	copy(containerStateHash[:], merkleRoot[:]) // simplified: same as merkle root for demo
+
+	result, err := chain.SubmitAttestation(
+		ctx,
+		s.rpcURL,
+		s.agentWalletKey,
+		s.easSchemaUID,
+		sessionID,
+		teamID,
+		merkleRoot,
+		containerStateHash,
+		"", // ipfsCID — empty for now; a future task uploads the action log to IPFS
+	)
+	if err != nil {
+		log.Printf("[attestation] session %s: submit failed: %v", sessionID, err)
+		return
+	}
+
+	att := &store.Attestation{
+		SessionID:  sessionID,
+		TxHash:     result.TxHash,
+		MerkleRoot: fmt.Sprintf("0x%x", merkleRoot),
+		SchemaUID:  s.easSchemaUID,
+		EASScanURL: "https://base-sepolia.easscan.org/tx/" + result.TxHash,
+	}
+	if err := s.store.SaveAttestation(ctx, att); err != nil {
+		log.Printf("[attestation] session %s: save failed: %v", sessionID, err)
+		return
+	}
+	log.Printf("[attestation] session %s: tx=%s", sessionID, result.TxHash)
 }
 
 // --- helpers ---
+
+// deriveProviderWallet returns the Ethereum address corresponding to a hex private key.
+func deriveProviderWallet(privKeyHex string) string {
+	privKeyHex = strings.TrimPrefix(privKeyHex, "0x")
+	privKey, err := crypto.HexToECDSA(privKeyHex)
+	if err != nil {
+		return ""
+	}
+	return crypto.PubkeyToAddress(privKey.PublicKey).Hex()
+}
 
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
