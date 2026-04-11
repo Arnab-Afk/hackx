@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/Arnab-Afk/hackx/backend/internal/agent"
 	"github.com/Arnab-Afk/hackx/backend/internal/container"
+	"github.com/Arnab-Afk/hackx/backend/internal/scanner"
 	"github.com/Arnab-Afk/hackx/backend/internal/store"
 )
 
@@ -20,13 +21,14 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	mgr    *container.Manager
-	store  *store.Store
-	apiKey string
+	mgr     *container.Manager
+	scanner *scanner.Scanner
+	store   *store.Store
+	apiKey  string
 }
 
-func NewServer(mgr *container.Manager, s *store.Store, apiKey string) http.Handler {
-	srv := &Server{mgr: mgr, store: s, apiKey: apiKey}
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, apiKey string) http.Handler {
+	srv := &Server{mgr: mgr, scanner: sc, store: s, apiKey: apiKey}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -101,12 +103,22 @@ func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
 // POST /sessions
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TeamID string `json:"team_id"`
-		Prompt string `json:"prompt"`
+		TeamID  string `json:"team_id"`
+		Prompt  string `json:"prompt"`
+		RepoURL string `json:"repo_url"` // optional GitHub URL
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" || req.Prompt == "" {
-		http.Error(w, "team_id and prompt are required", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" {
+		http.Error(w, "team_id is required", http.StatusBadRequest)
 		return
+	}
+	// At least one of prompt or repo_url must be provided
+	if req.Prompt == "" && req.RepoURL == "" {
+		http.Error(w, "prompt or repo_url is required", http.StatusBadRequest)
+		return
+	}
+	// If only repo_url given, build a default prompt
+	if req.Prompt == "" {
+		req.Prompt = fmt.Sprintf("Deploy the repository at %s", req.RepoURL)
 	}
 
 	// Verify team exists
@@ -129,7 +141,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run agent in background; client connects to /sessions/:id/stream to get events
-	go s.runAgentSession(sess.ID, sess.TeamID, req.Prompt)
+	go s.runAgentSession(sess.ID, sess.TeamID, req.Prompt, req.RepoURL)
 
 	jsonResponse(w, http.StatusCreated, sess)
 }
@@ -214,9 +226,15 @@ func (s *Server) destroyContainer(w http.ResponseWriter, r *http.Request) {
 }
 
 // runAgentSession runs the agent and publishes events to the session bus.
-func (s *Server) runAgentSession(sessionID, teamID, prompt string) {
+func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	ctx := context.Background()
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.apiKey)
+
+	// If a repo URL was given, prepend it into the prompt so the agent calls analyze_repo
+	if repoURL != "" {
+		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
+	}
+
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.apiKey)
 
 	// Forward events to bus
 	go func() {

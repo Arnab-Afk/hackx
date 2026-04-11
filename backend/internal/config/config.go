@@ -5,18 +5,22 @@ import (
 )
 
 type Config struct {
-	Port           string
-	DatabaseURL    string
+	Port            string
+	DatabaseURL     string
 	AnthropicAPIKey string
-	DockerHost     string
+	DockerHost      string
+	ProxyURL        string // antigravity-claude-proxy for Gemini
+	GeminiModel     string // model to use for repo scanning
 }
 
 func Load() *Config {
 	return &Config{
-		Port:           getEnv("PORT", "8080"),
-		DatabaseURL:    getEnv("DATABASE_URL", "postgres://zkloud:zkloud@localhost:5432/zkloud?sslmode=disable"),
+		Port:            getEnv("PORT", "8080"),
+		DatabaseURL:     getEnv("DATABASE_URL", "postgres://zkloud:zkloud@localhost:5432/zkloud?sslmode=disable"),
 		AnthropicAPIKey: mustEnv("ANTHROPIC_API_KEY"),
-		DockerHost:     getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		DockerHost:      getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		ProxyURL:        getEnv("PROXY_URL", "http://localhost:8080"),
+		GeminiModel:     getEnv("GEMINI_MODEL", "gemini-3.1-pro-high"),
 	}
 }
 

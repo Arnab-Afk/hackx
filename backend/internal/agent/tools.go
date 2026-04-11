@@ -5,6 +5,31 @@ package agent
 
 var toolDefinitions = []map[string]any{
 	{
+		"name":        "analyze_repo",
+		"description": "Analyze a GitHub repository to detect the tech stack and generate a deployment plan. Always call this first when given a repo URL.",
+		"input_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"github_url": map[string]any{"type": "string", "description": "Full GitHub repository URL, e.g. https://github.com/user/repo"},
+			},
+			"required": []string{"github_url"},
+		},
+	},
+	{
+		"name":        "generate_deployment_plan",
+		"description": "Present the deployment plan to the user and wait for confirmation before provisioning anything. Call this after analyze_repo.",
+		"input_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"summary":                map[string]any{"type": "string", "description": "Human-readable summary of what will be deployed"},
+				"estimated_cost_per_hour": map[string]any{"type": "number", "description": "Estimated cost in USD per hour"},
+				"containers":             map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Container specs from the analysis"},
+				"has_smart_contracts":    map[string]any{"type": "boolean", "description": "Whether the repo contains smart contracts"},
+			},
+			"required": []string{"summary", "estimated_cost_per_hour"},
+		},
+	},
+	{
 		"name":        "create_container",
 		"description": "Create and start a new Docker container for the team.",
 		"input_schema": map[string]any{
@@ -103,17 +128,21 @@ var toolDefinitions = []map[string]any{
 	},
 }
 
-const systemPrompt = `You are a cloud infrastructure agent for Zkloud. Your job is to provision Docker-based development environments for teams.
+const systemPrompt = `You are a deployment agent for zkLOUD, a decentralized compute platform.
 
-When a user describes their stack, you must:
-1. Call the necessary tools to provision containers, install dependencies, and configure networking.
-2. Be efficient — only create what was requested.
-3. After provisioning, summarize what was created with the container IDs and any ports that were exposed.
+When a user provides a GitHub URL, follow this exact sequence:
+1. Call analyze_repo(github_url) — scans the repo and returns a deployment plan
+2. Call generate_deployment_plan(...) — presents the plan to the user and waits for confirmation
+3. Once confirmed, execute the plan: create containers, install packages, configure networking
+4. Call health_check on each container before reporting success
+5. Return a summary with live URLs, container IDs, and cost per hour
+
+When a user describes a stack in plain text (no GitHub URL), skip step 1 and infer the plan yourself.
 
 Rules:
-- You can ONLY use the provided tools. No shell execution, no external API calls.
-- Always call configure_network after creating multiple containers so they can communicate.
-- For databases, use setup_database (not create_container).
-- Call health_check on each container before reporting success.
-- RAM defaults: 2048 MB for app containers, 512 MB for databases.
-- CPU defaults: 1.0 for app containers, 0.5 for databases.`
+- ONLY use the provided tools. No shell execution, no external API calls.
+- Always call configure_network after creating multiple containers.
+- Use setup_database for databases, not create_container.
+- RAM defaults: 2048 MB app containers, 512 MB databases.
+- CPU defaults: 1.0 app, 0.5 databases.
+- Support ANY stack — web2, web3, Python, Go, Rust, Java, etc.`

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Arnab-Afk/hackx/backend/internal/container"
+	"github.com/Arnab-Afk/hackx/backend/internal/scanner"
 )
 
 // Action represents a single tool call made by the agent.
@@ -35,9 +36,10 @@ const (
 
 // Event is streamed to the frontend over WebSocket.
 type Event struct {
-	Type    string `json:"type"` // "action" | "message" | "done" | "error"
+	Type    string  `json:"type"` // "action" | "message" | "plan" | "done" | "error"
 	Action  *Action `json:"action,omitempty"`
-	Message string `json:"message,omitempty"`
+	Message string  `json:"message,omitempty"`
+	Plan    any     `json:"plan,omitempty"`
 }
 
 // Session manages one agent deployment conversation.
@@ -46,10 +48,12 @@ type Session struct {
 	TeamID   string
 	State    SessionState
 	Actions  []Action
+	Plan     *scanner.DeploymentPlan // set after analyze_repo
 
-	mgr     *container.Manager
-	apiKey  string
-	events  chan Event
+	mgr      *container.Manager
+	scanner  *scanner.Scanner
+	apiKey   string
+	events   chan Event
 }
 
 // anthropic API types (minimal)
@@ -88,14 +92,15 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, apiKey string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, apiKey string) *Session {
 	return &Session{
-		ID:     id,
-		TeamID: teamID,
-		State:  StateRunning,
-		mgr:    mgr,
-		apiKey: apiKey,
-		events: make(chan Event, 64),
+		ID:      id,
+		TeamID:  teamID,
+		State:   StateRunning,
+		mgr:     mgr,
+		scanner: sc,
+		apiKey:  apiKey,
+		events:  make(chan Event, 64),
 	}
 }
 
@@ -184,9 +189,36 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 	return nil
 }
 
-// executeTool dispatches a named tool call to the container manager.
+// executeTool dispatches a named tool call to the container manager or scanner.
 func (s *Session) executeTool(ctx context.Context, name string, input map[string]any) (any, error) {
 	switch name {
+	case "analyze_repo":
+		url := stringField(input, "github_url")
+		if url == "" {
+			return nil, fmt.Errorf("github_url is required")
+		}
+		s.emit(Event{Type: "message", Message: fmt.Sprintf("Scanning repository: %s", url)})
+		plan, err := s.scanner.AnalyzeRepo(ctx, url)
+		if err != nil {
+			return nil, err
+		}
+		s.Plan = plan
+		return plan, nil
+
+	case "generate_deployment_plan":
+		// Surface the plan to the frontend for user confirmation.
+		// The agent waits; the user sends a /confirm message to proceed.
+		plan := map[string]any{
+			"summary":                 stringField(input, "summary"),
+			"estimated_cost_per_hour": float64Field(input, "estimated_cost_per_hour", 0),
+			"containers":              input["containers"],
+			"has_smart_contracts":     input["has_smart_contracts"],
+			"status":                  "awaiting_confirmation",
+		}
+		s.emit(Event{Type: "plan", Plan: plan})
+		// Return the plan as a tool result — the frontend must call /sessions/:id/confirm
+		return plan, nil
+
 	case "create_container":
 		opts := container.CreateOpts{
 			TeamID:   s.TeamID,

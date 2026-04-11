@@ -13,6 +13,7 @@ import (
 	"github.com/Arnab-Afk/hackx/backend/internal/api"
 	"github.com/Arnab-Afk/hackx/backend/internal/config"
 	"github.com/Arnab-Afk/hackx/backend/internal/container"
+	"github.com/Arnab-Afk/hackx/backend/internal/scanner"
 	"github.com/Arnab-Afk/hackx/backend/internal/store"
 )
 
@@ -41,8 +42,12 @@ func main() {
 	}
 	log.Println("docker manager ready")
 
+	// --- Scanner (Gemini via proxy) ---
+	sc := scanner.New(cfg.ProxyURL, cfg.GeminiModel)
+	log.Println("scanner ready")
+
 	// --- HTTP Server ---
-	handler := api.NewServer(mgr, db, cfg.AnthropicAPIKey)
+	handler := api.NewServer(mgr, sc, db, cfg.AnthropicAPIKey)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      handler,
