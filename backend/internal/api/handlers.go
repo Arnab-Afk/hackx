@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/gorilla/websocket"
@@ -95,14 +98,26 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	r.Get("/teams/{teamID}", srv.getTeam)
 	r.Get("/teams/{teamID}/containers", srv.listContainers)
 
-	r.Post("/sessions", srv.createSession)
+	// Compute endpoints — protected by x402 payment middleware when a provider wallet is configured.
+	// If agentWalletKey is empty (dev mode), x402 is bypassed so the node still works without payment.
+	var computeMiddleware func(http.Handler) http.Handler
+	if srv.agentWalletKey != "" {
+		// 0.01 USDC per session (10_000 micro-USDC, 6 decimals)
+		requiredUsdc := big.NewInt(10_000)
+		providerWallet := deriveProviderWallet(srv.agentWalletKey)
+		computeMiddleware = x402Middleware(providerWallet, requiredUsdc, srv.rpcURL, srv.agentWalletKey)
+	} else {
+		computeMiddleware = func(next http.Handler) http.Handler { return next } // passthrough
+	}
+
+	r.With(computeMiddleware).Post("/sessions", srv.createSession)
 	r.Get("/sessions/{sessionID}", srv.getSession)
 	r.Get("/sessions/{sessionID}/stream", srv.streamSession)
 	r.Get("/sessions/{sessionID}/log", srv.getActionLog)
 
 	r.Delete("/containers/{containerID}", srv.destroyContainer)
 
-	r.Post("/workspaces", srv.allocateWorkspace)
+	r.With(computeMiddleware).Post("/workspaces", srv.allocateWorkspace)
 	r.Get("/workspaces/{containerID}/status", srv.workspaceStatus)
 	r.Get("/workspaces/{containerID}/ssh", srv.sshGateway) // WebSocket SSH terminal
 	r.Delete("/workspaces/{containerID}", srv.destroyWorkspace)
@@ -462,6 +477,16 @@ func (s *Server) submitAttestation(sessionID, teamID string, actions []agent.Act
 }
 
 // --- helpers ---
+
+// deriveProviderWallet returns the Ethereum address corresponding to a hex private key.
+func deriveProviderWallet(privKeyHex string) string {
+	privKeyHex = strings.TrimPrefix(privKeyHex, "0x")
+	privKey, err := crypto.HexToECDSA(privKeyHex)
+	if err != nil {
+		return ""
+	}
+	return crypto.PubkeyToAddress(privKey.PublicKey).Hex()
+}
 
 func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
