@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Sidebar } from "@/components/Sidebar";
 import { use } from "react";
 import { MOCK_SESSIONS, MOCK_ACTION_LOG } from "@/lib/mockData";
 
@@ -52,7 +53,7 @@ function CopyButton({ text }: { text: string }) {
       className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
       style={{
         background: "#2C2C2E",
-        color: "#00BFFF",
+        color: "#7c45ff",
         border: "1px solid #2C2C2E",
         fontFamily: "var(--font-space-mono), monospace",
         fontSize: "10px",
@@ -65,120 +66,6 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-
-function IconDashboard() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="3" width="7" height="7" rx="1"/>
-      <rect x="14" y="3" width="7" height="7" rx="1"/>
-      <rect x="3" y="14" width="7" height="7" rx="1"/>
-      <rect x="14" y="14" width="7" height="7" rx="1"/>
-    </svg>
-  );
-}
-function IconPipeline() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
-    </svg>
-  );
-}
-function IconKey() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="7.5" cy="15.5" r="4.5"/>
-      <path d="M21 2l-9.6 9.6M15.5 7.5l2 2"/>
-    </svg>
-  );
-}
-function IconCloud() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-    </svg>
-  );
-}
-function IconHistory() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <polyline points="12 8 12 12 14 14"/>
-      <path d="M3.05 11a9 9 0 1 1 .5 4M3 16v-5h5"/>
-    </svg>
-  );
-}
-function IconSettings() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  );
-}
-function IconHelp() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-      <line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>
-  );
-}
-
-function Sidebar({ active }: { active: string }) {
-  const navItems = [
-    { label: "Dashboard", icon: <IconDashboard />, href: "/" },
-    { label: "Pipelines", icon: <IconPipeline />, href: "/deploy" },
-    { label: "Secrets", icon: <IconKey />, href: "#" },
-    { label: "Environments", icon: <IconCloud />, href: "#" },
-    { label: "Audit Trails", icon: <IconHistory />, href: "#" },
-  ];
-  return (
-    <aside className="shrink-0 w-64 flex flex-col justify-between p-4" style={{ background: "#101012" }}>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3 px-2 py-2">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,191,255,0.12)", border: "1px solid rgba(0,191,255,0.25)" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BFFF" strokeWidth="2">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-white text-sm font-bold leading-tight">Zkloud</h1>
-            <p className="text-xs leading-tight" style={{ color: "#6B7280" }}>DevSecOps</p>
-          </div>
-        </div>
-        <nav className="flex flex-col gap-1 mt-2">
-          {navItems.map(({ label, icon, href }) => {
-            const isActive = label === active;
-            return (
-              <Link
-                key={label}
-                href={href}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{
-                  color: isActive ? "#00BFFF" : "#9CA3AF",
-                  background: isActive ? "rgba(0,191,255,0.1)" : "transparent",
-                  textDecoration: "none",
-                }}
-              >
-                {icon}
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
-          <IconSettings />Settings
-        </Link>
-        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
-          <IconHelp />Help
-        </Link>
-      </div>
-    </aside>
-  );
-}
 
 export default function VerifyPage({
   params,
@@ -265,7 +152,7 @@ export default function VerifyPage({
 
   return (
     <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
-      <Sidebar active="Audit Trails" />
+      <Sidebar mode="user" />
       <main className="flex-1 flex flex-col overflow-y-auto">
       <div>
       {/* Header */}
@@ -311,7 +198,7 @@ export default function VerifyPage({
           className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80 uppercase tracking-widest"
           style={{
             background: "#161618",
-            color: "#00BFFF",
+            color: "#7c45ff",
             border: "1px solid #2C2C2E",
           }}
         >
@@ -441,7 +328,7 @@ export default function VerifyPage({
           >
             <span
               className="text-xs uppercase tracking-widest"
-              style={{ color: "#00BFFF" }}
+              style={{ color: "#7c45ff" }}
             >
               MERKLE ROOT
             </span>
@@ -483,7 +370,7 @@ export default function VerifyPage({
                 className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
                 style={{
                   background: "#2C2C2E",
-                  color: "#00BFFF",
+                  color: "#7c45ff",
                   border: "1px solid #2C2C2E",
                   fontSize: "10px",
                   letterSpacing: "0.06em",
@@ -502,7 +389,7 @@ export default function VerifyPage({
                   className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
                   style={{
                     background: "#2C2C2E",
-                    color: "#00BFFF",
+                    color: "#7c45ff",
                     border: "1px solid #2C2C2E",
                     fontSize: "10px",
                     letterSpacing: "0.06em",
@@ -589,7 +476,7 @@ export default function VerifyPage({
                       style={{
                         fontFamily: "var(--font-space-mono), monospace",
                         fontSize: "11px",
-                        color: "#00BFFF",
+                        color: "#7c45ff",
                       }}
                     >
                       {step.code}

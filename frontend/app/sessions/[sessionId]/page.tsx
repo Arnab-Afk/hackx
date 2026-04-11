@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Sidebar } from "@/components/Sidebar";
 import { use } from "react";
 import { MOCK_SESSIONS, MOCK_ACTION_LOG } from "@/lib/mockData";
 
@@ -157,33 +158,17 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const stateColor = session?.state === "completed" ? "#22c55e" : session?.state === "failed" ? "#ef4444" : "#eab308";
 
   return (
-    <div className="min-h-screen" style={{ background: "#0e0e0e", color: "#d1d5db", fontFamily: "var(--font-inter), sans-serif" }}>
-      {/* Nav */}
-      <header className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid #1f2937" }}>
-        <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 text-sm transition-opacity hover:opacity-70" style={{ color: "#6b7280" }}>
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m15 18-6-6 6-6" />
-            </svg>
-            Dashboard
-          </Link>
-          <span style={{ color: "#374151" }}>/</span>
-          <span className="text-sm" style={{ color: "#6b7280" }}>Sessions</span>
-          <span style={{ color: "#374151" }}>/</span>
-          <span className="text-sm font-semibold" style={{ color: "#f3f4f6", fontFamily: "var(--font-space-mono), monospace" }}>
-            {sessionId.slice(0, 20)}…
-          </span>
-        </div>
-        <Link
-          href="/deploy"
-          className="text-xs px-4 py-1.5 rounded-sm font-semibold transition-opacity hover:opacity-80"
-          style={{ background: "#5c6e8c", color: "#fff" }}
-        >
-          New Deploy
-        </Link>
-      </header>
-
-      <div className="max-w-5xl mx-auto px-6 py-10">
+    <div className="flex h-screen" style={{ background: "#0A0A0A", color: "#E5E7EB", fontFamily: "var(--font-inter), sans-serif" }}>
+      <Sidebar mode="user" />
+      <main className="flex-1 overflow-y-auto">
+      <div className="p-8">
+        <header className="flex items-center gap-4 mb-6">
+          <Link href="/" className="text-sm" style={{ color: "#6B7280", textDecoration: "none" }}>← Dashboard</Link>
+          <span style={{ color: "#4B5563" }}>/</span>
+          <span className="text-sm font-mono" style={{ color: "#9CA3AF" }}>Sessions</span>
+          <span style={{ color: "#4B5563" }}>/</span>
+          <span className="text-sm font-mono" style={{ color: "#F3F4F6" }}>{sessionId.slice(0, 20)}…</span>
+        </header>
         {/* Session header */}
         <div className="rounded-sm p-6 mb-6" style={{ background: "#181818", border: "1px solid #1f2937" }}>
           <div className="flex items-start justify-between gap-4 mb-4">
@@ -396,11 +381,12 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         </div>
 
         {/* Footer links */}
-        <div className="mt-10 pt-6 flex items-center justify-between" style={{ borderTop: "1px solid #1f2937" }}>
-          <Link href="/" className="text-xs hover:underline" style={{ color: "#4b5563" }}>← Dashboard</Link>
-          <Link href="/deploy" className="text-xs hover:underline" style={{ color: "#5c6e8c" }}>Deploy Again →</Link>
+        <div className="mt-10 pt-6 flex items-center justify-between" style={{ borderTop: "1px solid #2C2C2E" }}>
+          <Link href="/" className="text-xs hover:underline" style={{ color: "#4B5563" }}>← Dashboard</Link>
+          <Link href="/deploy" className="text-xs hover:underline" style={{ color: "#7c45ff" }}>Deploy Again →</Link>
         </div>
       </div>
+      </main>
     </div>
   );
 }

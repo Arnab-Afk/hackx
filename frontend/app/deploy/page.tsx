@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { MOCK_SESSIONS } from "@/lib/mockData";
+import { Sidebar } from "@/components/Sidebar";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -31,123 +32,6 @@ const statusMeta: Record<string, { dot: string; text: string; bg: string }> = {
   default:   { dot: "#6B7280", text: "#6B7280", bg: "rgba(107,114,128,0.1)" },
 };
 function getSm(s: string) { return statusMeta[s] ?? statusMeta.default; }
-
-function IconDashboard() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <rect x="3" y="3" width="7" height="7" rx="1"/>
-      <rect x="14" y="3" width="7" height="7" rx="1"/>
-      <rect x="3" y="14" width="7" height="7" rx="1"/>
-      <rect x="14" y="14" width="7" height="7" rx="1"/>
-    </svg>
-  );
-}
-function IconPipeline() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
-    </svg>
-  );
-}
-function IconKey() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="7.5" cy="15.5" r="4.5"/>
-      <path d="M21 2l-9.6 9.6M15.5 7.5l2 2"/>
-    </svg>
-  );
-}
-function IconCloud() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-    </svg>
-  );
-}
-function IconHistory() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <polyline points="12 8 12 12 14 14"/>
-      <path d="M3.05 11a9 9 0 1 1 .5 4M3 16v-5h5"/>
-    </svg>
-  );
-}
-function IconSettings() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="3"/>
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-    </svg>
-  );
-}
-function IconHelp() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <circle cx="12" cy="12" r="10"/>
-      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-      <line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>
-  );
-}
-
-function Sidebar() {
-  const navItems = [
-    { label: "Dashboard", icon: <IconDashboard />, href: "/" },
-    { label: "Pipelines", icon: <IconPipeline />, href: "/deploy" },
-    { label: "Secrets", icon: <IconKey />, href: "#" },
-    { label: "Environments", icon: <IconCloud />, href: "#" },
-    { label: "Audit Trails", icon: <IconHistory />, href: "#" },
-  ];
-
-  return (
-    <aside className="shrink-0 w-64 flex flex-col justify-between p-4" style={{ background: "#101012" }}>
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center gap-3 px-2 py-2">
-          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,191,255,0.12)", border: "1px solid rgba(0,191,255,0.25)" }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BFFF" strokeWidth="2">
-              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
-            </svg>
-          </div>
-          <div>
-            <h1 className="text-white text-sm font-bold leading-tight">Zkloud</h1>
-            <p className="text-xs leading-tight" style={{ color: "#6B7280" }}>DevSecOps</p>
-          </div>
-        </div>
-        <nav className="flex flex-col gap-1 mt-2">
-          {navItems.map(({ label, icon, href }) => {
-            const isActive = label === "Pipelines";
-            return (
-              <Link
-                key={label}
-                href={href}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{
-                  color: isActive ? "#00BFFF" : "#9CA3AF",
-                  background: isActive ? "rgba(0,191,255,0.1)" : "transparent",
-                  textDecoration: "none",
-                }}
-              >
-                {icon}
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
-      </div>
-      <div className="flex flex-col gap-1">
-        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
-          <IconSettings />
-          Settings
-        </Link>
-        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
-          <IconHelp />
-          Help
-        </Link>
-      </div>
-    </aside>
-  );
-}
 
 export default function DeployPage() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -265,7 +149,7 @@ export default function DeployPage() {
 
   return (
     <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
-      <Sidebar />
+      <Sidebar mode="user" />
 
       <main className="flex-1 flex flex-col overflow-y-auto">
         <div className="p-8">
@@ -289,7 +173,7 @@ export default function DeployPage() {
                 onClick={handleDeploy}
                 disabled={!selectedProjectId || phase === "deploying"}
                 className="flex items-center justify-center rounded-lg h-10 px-4 text-sm font-black disabled:opacity-30"
-                style={{ background: "#00BFFF", color: "#000" }}
+                style={{ background: "#7c45ff", color: "#000" }}
               >
                 {phase === "deploying" ? (
                   <svg className="animate-spin mr-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -320,7 +204,7 @@ export default function DeployPage() {
             ].map((s) => (
               <div key={s.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
                 <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{s.label}</p>
-                <p className="text-xl font-bold leading-tight flex items-center gap-2 truncate" style={{ color: s.accent ? "#00BFFF" : "#F9FAFB" }}>
+                <p className="text-xl font-bold leading-tight flex items-center gap-2 truncate" style={{ color: s.accent ? "#7c45ff" : "#F9FAFB" }}>
                   {s.accent && (
                     <svg className="animate-spin shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                       <circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/>
@@ -348,22 +232,22 @@ export default function DeployPage() {
                   <div
                     className="flex items-center justify-center rounded-full p-1.5"
                     style={{
-                      color: githubConnected ? "#28A745" : "#00BFFF",
-                      background: githubConnected ? "rgba(40,167,69,0.15)" : "rgba(0,191,255,0.15)",
+                      color: githubConnected ? "#28A745" : "#7c45ff",
+                      background: githubConnected ? "rgba(40,167,69,0.15)" : "rgba(124,69,255,0.15)",
                     }}
                   >
                     {githubConnected ? (
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
                     ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00BFFF" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
                     )}
                   </div>
                   <div className="w-0.5 grow" style={{ background: "#2C2C2E" }} />
                 </div>
                 <div className="flex flex-col pb-5 pl-1"
-                  style={!githubConnected ? { background: "#161618", border: "1px solid #00BFFF", borderRadius: "8px", padding: "12px 14px", marginBottom: "12px" } : {}}
+                  style={!githubConnected ? { background: "#161618", border: "1px solid #7c45ff", borderRadius: "8px", padding: "12px 14px", marginBottom: "12px" } : {}}
                 >
-                  <p className="text-sm font-bold" style={{ color: !githubConnected ? "#00BFFF" : "#F3F4F6" }}>
+                  <p className="text-sm font-bold" style={{ color: !githubConnected ? "#7c45ff" : "#F3F4F6" }}>
                     Connect GitHub Repository
                   </p>
                   <p className="text-xs mt-0.5" style={{ color: githubConnected ? "#28A745" : "#9CA3AF" }}>
@@ -374,10 +258,10 @@ export default function DeployPage() {
                 {/* Stage: Select Project */}
                 <div className="flex flex-col items-center gap-1">
                   {githubConnected ? (
-                    <div className="flex items-center justify-center rounded-full p-1.5" style={{ color: selectedProjectId ? "#28A745" : "#00BFFF", background: selectedProjectId ? "rgba(40,167,69,0.15)" : "rgba(0,191,255,0.15)" }}>
+                    <div className="flex items-center justify-center rounded-full p-1.5" style={{ color: selectedProjectId ? "#28A745" : "#7c45ff", background: selectedProjectId ? "rgba(40,167,69,0.15)" : "rgba(124,69,255,0.15)" }}>
                       {selectedProjectId
                         ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00BFFF" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
                       }
                     </div>
                   ) : (
@@ -416,7 +300,7 @@ export default function DeployPage() {
             {/* Right: Config panel with tabs */}
             <div className="lg:col-span-2 rounded-xl overflow-hidden flex flex-col" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
               <div className="flex" style={{ borderBottom: "1px solid #2C2C2E" }}>
-                <button className="px-4 py-3 text-white text-sm font-semibold" style={{ borderBottom: "2px solid #00BFFF" }}>Config</button>
+                <button className="px-4 py-3 text-white text-sm font-semibold" style={{ borderBottom: "2px solid #7c45ff" }}>Config</button>
                 <button className="px-4 py-3 text-sm font-medium" style={{ color: "#6B7280" }}>Details</button>
                 <button className="px-4 py-3 text-sm font-medium" style={{ color: "#6B7280" }}>Audit Trail</button>
               </div>
@@ -456,13 +340,13 @@ export default function DeployPage() {
                             border: "1px solid #2C2C2E",
                             color: "#E5E7EB",
                           }}
-                          onFocus={(e) => (e.currentTarget.style.borderColor = "#00BFFF")}
+                          onFocus={(e) => (e.currentTarget.style.borderColor = "#7c45ff")}
                           onBlur={(e) => (e.currentTarget.style.borderColor = "#2C2C2E")}
                         />
                         <button
                           onClick={() => { if (repoInput.trim()) { setGithubRepo(repoInput.trim()); setGithubConnected(true); } }}
                           className="px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap"
-                          style={{ background: "#00BFFF", color: "#000" }}
+                          style={{ background: "#7c45ff", color: "#000" }}
                         >
                           Connect
                         </button>
@@ -520,8 +404,8 @@ export default function DeployPage() {
                           onClick={() => setSelectedProjectId(project.id)}
                           className="w-full text-left px-5 py-3 flex items-center gap-3 transition-all"
                           style={{
-                            background: isSelected ? "rgba(0,191,255,0.06)" : "transparent",
-                            borderLeft: isSelected ? "2px solid #00BFFF" : "2px solid transparent",
+                            background: isSelected ? "rgba(124,69,255,0.06)" : "transparent",
+                            borderLeft: isSelected ? "2px solid #7c45ff" : "2px solid transparent",
                           }}
                         >
                           <span className="shrink-0 w-1.5 h-1.5 rounded-full" style={{ background: sm.dot }} />
@@ -556,9 +440,9 @@ export default function DeployPage() {
                             className="py-2 text-sm font-medium rounded-lg transition-all"
                             style={{
                               borderRadius: "8px",
-                              border: vmConfig.ram === opt ? "1px solid #00BFFF" : "1px solid #2C2C2E",
-                              background: vmConfig.ram === opt ? "rgba(0,191,255,0.1)" : "transparent",
-                              color: vmConfig.ram === opt ? "#00BFFF" : "#6B7280",
+                              border: vmConfig.ram === opt ? "1px solid #7c45ff" : "1px solid #2C2C2E",
+                              background: vmConfig.ram === opt ? "rgba(124,69,255,0.1)" : "transparent",
+                              color: vmConfig.ram === opt ? "#7c45ff" : "#6B7280",
                             }}
                           >
                             {opt}
@@ -576,9 +460,9 @@ export default function DeployPage() {
                             className="py-2 text-sm font-medium rounded-lg transition-all"
                             style={{
                               borderRadius: "8px",
-                              border: vmConfig.cpu === opt ? "1px solid #00BFFF" : "1px solid #2C2C2E",
-                              background: vmConfig.cpu === opt ? "rgba(0,191,255,0.1)" : "transparent",
-                              color: vmConfig.cpu === opt ? "#00BFFF" : "#6B7280",
+                              border: vmConfig.cpu === opt ? "1px solid #7c45ff" : "1px solid #2C2C2E",
+                              background: vmConfig.cpu === opt ? "rgba(124,69,255,0.1)" : "transparent",
+                              color: vmConfig.cpu === opt ? "#7c45ff" : "#6B7280",
                             }}
                           >
                             {opt}

@@ -15,7 +15,7 @@ const spaceMono = Space_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Zkloud — Trustless Agentic Cloud",
+  title: "COMPUT3 — Trustless Agentic Cloud",
   description: "Every cloud provider asks you to trust them. We're the only one that proves you can't.",
 };
 
