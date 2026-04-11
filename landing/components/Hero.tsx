@@ -84,7 +84,7 @@ export function Hero() {
           marginBottom: 12,
         }}
       >
-        We&apos;re the only one that proves you can&apos;t.
+        We are the only one that proves you cannot.
       </p>
       <p
         style={{
@@ -95,7 +95,7 @@ export function Hero() {
           marginBottom: 44,
         }}
       >
-        Describe your stack in plain English. An AI agent deploys it in under 60 seconds — with LUKS-encrypted containers, per-provider EAS attestation, and x402 streaming micropayments. No central gatekeeper.
+        Describe your stack in plain English. An AI agent deploys it in under 60 seconds with LUKS-encrypted containers, per-provider EAS attestation, and x402 streaming micropayments. No central gatekeeper.
       </p>
 
       {/* CTAs */}
@@ -164,7 +164,7 @@ export function Hero() {
           {["#ff5f57", "#ffbd2e", "#27c840"].map((c) => (
             <div key={c} style={{ width: 11, height: 11, borderRadius: "50%", background: c }} />
           ))}
-          <span style={{ fontSize: 12, color: "#444", marginLeft: 8, fontFamily: "monospace" }}>zkloud — agent</span>
+          <span style={{ fontSize: 12, color: "#444", marginLeft: 8, fontFamily: "monospace" }}>comput3  agent</span>
         </div>
 
         {/* Messages */}

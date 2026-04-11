@@ -51,7 +51,7 @@ export function Footer() {
         <div>
           <Wordmark className="text-base" />
           <p style={{ fontSize: 13, color: "#444", lineHeight: 1.6, marginTop: 12, maxWidth: 220 }}>
-            Trustless cloud infrastructure. Agentic deployment. Cryptographic proof that nobody — including us — can access your data.
+            Trustless cloud infrastructure. Agentic deployment. Cryptographic proof that nobody, including us, can access your data.
           </p>
         </div>
 
@@ -104,7 +104,7 @@ export function Footer() {
         }}
       >
         <span style={{ fontSize: 12, color: "#333" }}>
-          © {new Date().getFullYear()} Zkloud. Built for HackX 2025. &ldquo;Every cloud asks you to trust them. We prove you don&apos;t have to.&rdquo;
+          © {new Date().getFullYear()} COMPUT3. Built for HackX 2025.
         </span>
         <div
           style={{

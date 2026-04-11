@@ -1,48 +1,122 @@
-import { ArrowRight } from "lucide-react"
-import { Wordmark } from "./Wordmark"
+"use client"
+
+import { useState } from "react"
 
 export function FooterCTA() {
+  const [email, setEmail] = useState("")
+
   return (
-    <section className="py-28 px-6 border-t border-zinc-800/60 relative overflow-hidden">
-      {/* Background glow */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <div className="w-[600px] h-[350px] rounded-full bg-violet-600/10 blur-[120px]" />
-      </div>
-
-      <div className="relative max-w-4xl mx-auto text-center">
-        <Wordmark />
-
-        <h2 className="text-4xl sm:text-5xl font-bold text-white mt-8 leading-tight">
-          Your agents deserve
-          <br />
-          <span className="bg-gradient-to-r from-violet-400 to-purple-500 bg-clip-text text-transparent">
-            trustless infrastructure.
-          </span>
+    <section
+      style={{
+        background: "#030303",
+        padding: "120px 24px 100px",
+        borderTop: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+        <h2
+          style={{
+            fontSize: "clamp(38px, 6vw, 70px)",
+            fontWeight: 700,
+            letterSpacing: "-0.04em",
+            color: "#fff",
+            lineHeight: 1.05,
+            marginBottom: 20,
+          }}
+        >
+          Deploy trustlessly.<br />
+          Verify on-chain.
         </h2>
 
-        <p className="mt-6 text-zinc-400 text-lg max-w-xl mx-auto leading-relaxed">
-          Paste a GitHub URL. Get verified, encrypted containers running on a
-          decentralized compute network — attested on-chain in minutes.
+        <p
+          style={{
+            fontSize: 16,
+            color: "#555",
+            lineHeight: 1.65,
+            maxWidth: 400,
+            marginBottom: 40,
+          }}
+        >
+          COMPUT3 is live on Base Sepolia. Three provider nodes are running. Start deploying in under 60 seconds.
         </p>
 
-        <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center items-center">
-          <a
-            href="http://localhost:3001"
-            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-semibold px-8 py-3.5 rounded-full transition-colors text-sm"
+        {/* Email + CTA — pill shaped like Runlayer */}
+        <form
+          style={{ display: "flex", maxWidth: 400 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            window.location.href = "http://localhost:3001"
+          }}
+        >
+          <input
+            type="email"
+            placeholder="Enter your email..."
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={{
+              flex: 1,
+              padding: "13px 20px",
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.1)",
+              borderRight: "none",
+              borderRadius: "100px 0 0 100px",
+              color: "#fff",
+              fontSize: 14,
+              outline: "none",
+            }}
+          />
+          <button
+            type="submit"
+            style={{
+              padding: "13px 22px",
+              background: "#fff",
+              color: "#000",
+              fontSize: 14,
+              fontWeight: 600,
+              border: "none",
+              borderRadius: "0 100px 100px 0",
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.background = "#e8e8e8")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.background = "#fff")}
           >
-            Paste a repo URL <ArrowRight size={16} />
-          </a>
+            Get Started
+          </button>
+        </form>
 
-          <div className="flex items-center gap-3 text-sm text-zinc-500">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              Live on Base Sepolia
+        {/* Trust signals */}
+        <div style={{ display: "flex", gap: 24, marginTop: 28, flexWrap: "wrap" }}>
+          {[
+            "Base Sepolia",
+            "EAS Attested",
+            "x402 Protocol",
+            "LUKS Encrypted",
+            "Open Source",
+          ].map((badge) => (
+            <span
+              key={badge}
+              style={{
+                fontSize: 12,
+                color: "#444",
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+              }}
+            >
+              <span
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: "50%",
+                  background: "#4ade80",
+                  display: "inline-block",
+                  flexShrink: 0,
+                }}
+              />
+              {badge}
             </span>
-            <span>·</span>
-            <span>EAS Attested</span>
-            <span>·</span>
-            <span>Open source</span>
-          </div>
+          ))}
         </div>
       </div>
     </section>

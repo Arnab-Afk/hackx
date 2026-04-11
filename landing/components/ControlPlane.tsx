@@ -17,17 +17,17 @@ const PILLARS = [
   {
     index: "01",
     title: "Confidential Containers",
-    desc: "Every container runs with LUKS2 filesystem encryption. The key is derived from your keypair — generated in-browser, never sent to the server. Even with root access on the host machine, the operator cannot read your data.",
+    desc: "Every container runs with LUKS2 filesystem encryption. The key is derived from your keypair, generated in-browser, never sent to the server. Even with root access on the host machine, the operator cannot read your data.",
   },
   {
     index: "02",
     title: "Agentic Deployment",
-    desc: "Describe your stack in plain English. The agent calls a constrained set of tools — no raw shell access, no filesystem access outside your mounted volumes. It can't do anything you didn't ask for.",
+    desc: "Describe your stack in plain English. The agent calls a constrained set of tools with no raw shell access and no filesystem access outside your mounted volumes. It cannot do anything you did not ask for.",
   },
   {
     index: "03",
     title: "On-Chain Verification",
-    desc: "Every tool call is appended to an immutable action log. The merkle root of all action hashes is attested on-chain via EAS — signed by the provider's wallet, not ours. Recompute the root yourself to verify nothing extra ran.",
+    desc: "Every tool call is appended to an immutable action log. The merkle root of all action hashes is attested on-chain via EAS, signed by the provider wallet, not ours. Recompute the root yourself to verify nothing extra ran.",
   },
 ]
 
@@ -38,8 +38,7 @@ export function ControlPlane() {
     <section
       id="how-it-works"
       style={{
-        borderTop: "1px solid rgba(255,255,255,0.06)",
-        borderBottom: "1px solid rgba(255,255,255,0.06)",
+        background: "#030303",
         padding: "100px 0",
         overflow: "hidden",
       }}
@@ -62,10 +61,10 @@ export function ControlPlane() {
             marginBottom: 16,
           }}
         >
-          Trust isn&apos;t assumed.<br />
-          <span style={{ color: "rgba(255,255,255,0.3)" }}>It&apos;s proven.</span>
+          Trust is not assumed.<br />
+          <span style={{ color: "rgba(255,255,255,0.3)" }}>It is proven.</span>
         </h2>
-        <p style={{ fontSize: 15, color: "#444", maxWidth: 480, lineHeight: 1.6, marginBottom: 48 }}>
+        <p style={{ fontSize: 15, color: "#888", maxWidth: 480, lineHeight: 1.6, marginBottom: 48 }}>
           Zkloud combines three properties no existing platform has together: agentic UX, verifiable confidentiality, and per-provider on-chain attestation.
         </p>
 
@@ -89,13 +88,13 @@ export function ControlPlane() {
                 background: "rgba(255,255,255,0.015)",
               }}
             >
-              <div style={{ fontSize: 11, color: "#333", fontFamily: "monospace", marginBottom: 14, letterSpacing: "0.04em" }}>
+              <div style={{ fontSize: 11, color: "#555", fontFamily: "monospace", marginBottom: 14, letterSpacing: "0.04em" }}>
                 {p.index}
               </div>
               <div style={{ fontSize: 15, fontWeight: 600, color: "#ccc", marginBottom: 10 }}>
                 {p.title}
               </div>
-              <p style={{ fontSize: 13, color: "#444", lineHeight: 1.7, margin: 0 }}>
+              <p style={{ fontSize: 13, color: "#888", lineHeight: 1.7, margin: 0 }}>
                 {p.desc}
               </p>
             </div>

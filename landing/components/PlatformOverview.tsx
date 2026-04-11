@@ -1,53 +1,55 @@
 "use client"
 
-const ROTATING_A = ["DeFi dashboard", "hackathon project", "ML pipeline", "full-stack app", "AI agent backend"]
-const ROTATING_B = ["60 seconds", "on-chain proof", "zero trust", "Base Sepolia", "encrypted storage"]
-
 const USE_CASES = [
   {
-    name: "DeFi Analytics",
-    desc: "React + FastAPI + PostgreSQL. Agent provisions all three containers, configures internal networking, and attests the deployment.",
-    icon: "📊",
     tag: "Finance",
+    name: "DeFi Analytics",
+    desc: "React, FastAPI, and PostgreSQL. Agent provisions three containers, configures internal networking, and submits an EAS attestation for the full deployment.",
   },
   {
-    name: "Hackathon Infra",
-    desc: "Organizers provide each team a private encrypted cloud environment. No team can see another's code — cryptographically guaranteed.",
-    icon: "🏆",
     tag: "Events",
+    name: "Hackathon Infrastructure",
+    desc: "Each team receives a private encrypted environment. No team can read another's code. Cryptographically guaranteed, not just policy.",
   },
   {
-    name: "ML Training Run",
-    desc: "Python + CUDA container with attached encrypted storage. Payment streams per-second via x402 — stop anytime.",
-    icon: "🧠",
     tag: "AI / ML",
+    name: "Model Training",
+    desc: "Python and CUDA container with attached encrypted storage. Payments stream per-second via x402. Stop anytime and pay only what you used.",
   },
   {
-    name: "Web3 Backend",
-    desc: "Node.js API + Redis + contract deployment scripts. Agent selects cheapest provider from ProviderRegistry.sol automatically.",
-    icon: "⛓",
     tag: "Web3",
+    name: "Smart Contract Backend",
+    desc: "Node.js API with Redis and deployment scripts. The agent selects the cheapest available provider from ProviderRegistry.sol automatically.",
   },
   {
-    name: "Privacy-Sensitive App",
-    desc: "Healthcare or legal data processing. LUKS encryption ensures even the host operator cannot access patient or client data.",
-    icon: "🔒",
     tag: "Compliance",
+    name: "Privacy-Sensitive Workload",
+    desc: "Healthcare or legal data processing. LUKS encryption ensures the host operator cannot access patient or client data under any circumstances.",
   },
   {
-    name: "Rapid Prototype",
-    desc: "No Docker knowledge required. Describe your stack in English, get a running environment with VS Code IDE in under a minute.",
-    icon: "⚡",
     tag: "DevEx",
+    name: "Rapid Prototype",
+    desc: "No Docker knowledge required. Describe your stack in plain English, receive a running environment with a web IDE in under sixty seconds.",
   },
 ]
 
+// Duplicate for seamless infinite loop (marquee scrolls -50%)
+const DOUBLED = [...USE_CASES, ...USE_CASES]
+
 export function PlatformOverview() {
   return (
-    <section style={{ padding: "100px 24px", maxWidth: 1180, margin: "0 auto" }}>
-      {/* Animated headline */}
-      <div style={{ marginBottom: 64 }}>
-        <p style={{ fontSize: 12, letterSpacing: "0.12em", textTransform: "uppercase", color: "#555", marginBottom: 16 }}>
+    <section style={{ background: "#030303", padding: "100px 0 110px" }}>
+      {/* Heading block */}
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 24px", marginBottom: 56 }}>
+        <p
+          style={{
+            fontSize: 11,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: "#555",
+            marginBottom: 18,
+          }}
+        >
           Use Cases
         </p>
         <h2
@@ -56,108 +58,99 @@ export function PlatformOverview() {
             fontWeight: 700,
             letterSpacing: "-0.035em",
             color: "#fff",
-            lineHeight: 1.15,
+            lineHeight: 1.1,
+            marginBottom: 16,
           }}
         >
-          Deploy your{" "}
-          <span
-            style={{
-              display: "inline-block",
-              overflow: "hidden",
-              verticalAlign: "bottom",
-              height: "1.15em",
-              position: "relative",
-            }}
-          >
-            <span
-              style={{
-                display: "block",
-                animation: "wordSlide 12.5s steps(1) infinite",
-                color: "rgba(255,255,255,0.35)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {ROTATING_A[0]}
-            </span>
-          </span>
-          {" "}with{" "}
-          <span
-            style={{
-              display: "inline-block",
-              overflow: "hidden",
-              verticalAlign: "bottom",
-              height: "1.15em",
-              position: "relative",
-            }}
-          >
-            <span
-              style={{
-                display: "block",
-                animation: "wordSlide 12.5s steps(1) infinite 0.2s",
-                color: "rgba(255,255,255,0.35)",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {ROTATING_B[0]}
-            </span>
-          </span>
-          .
+          Deploy any workload.
+          <br />
+          <span style={{ color: "rgba(255,255,255,0.28)" }}>Any stack. In seconds.</span>
         </h2>
-        <p style={{ fontSize: 15, color: "#444", maxWidth: 440, lineHeight: 1.6, marginTop: 16 }}>
-          Any stack. Any workload. Verified on-chain. Operator-proof encryption. No trust required.
+        <p style={{ fontSize: 15, color: "#666", maxWidth: 400, lineHeight: 1.65 }}>
+          Verified on-chain. Operator-proof encryption. No trust required.
         </p>
       </div>
 
-      {/* Use case cards grid */}
+      {/* Infinite marquee strip */}
       <div
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-          gap: 14,
+          overflow: "hidden",
+          WebkitMaskImage:
+            "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
+          maskImage:
+            "linear-gradient(to right, transparent 0%, black 8%, black 92%, transparent 100%)",
         }}
       >
-        {USE_CASES.map((t) => (
-          <div
-            key={t.name}
-            style={{
-              background: "rgba(255,255,255,0.025)",
-              border: "1px solid rgba(255,255,255,0.07)",
-              borderRadius: 14,
-              padding: "28px 24px",
-              cursor: "default",
-              transition: "border-color 0.15s, background 0.15s",
-              position: "relative",
-            }}
-            onMouseEnter={e => {
-              ;(e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.14)"
-              ;(e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)"
-            }}
-            onMouseLeave={e => {
-              ;(e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.07)"
-              ;(e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.025)"
-            }}
-          >
+        <div
+          style={{
+            display: "flex",
+            gap: 14,
+            width: "max-content",
+            animation: "marquee 38s linear infinite",
+          }}
+          onMouseEnter={(e) =>
+            ((e.currentTarget as HTMLElement).style.animationPlayState = "paused")
+          }
+          onMouseLeave={(e) =>
+            ((e.currentTarget as HTMLElement).style.animationPlayState = "running")
+          }
+        >
+          {DOUBLED.map((t, i) => (
             <div
+              key={i}
               style={{
-                position: "absolute",
-                top: 16,
-                right: 16,
-                fontSize: 10,
-                color: "#333",
-                border: "1px solid rgba(255,255,255,0.06)",
-                borderRadius: 100,
-                padding: "2px 9px",
-                letterSpacing: "0.04em",
+                width: 300,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                borderRadius: 16,
+                padding: "28px 24px 26px",
+                flexShrink: 0,
+                position: "relative",
               }}
             >
-              {t.tag}
-            </div>
+              {/* Tag pill */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: 18,
+                  right: 18,
+                  fontSize: 10,
+                  color: "#666",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  borderRadius: 100,
+                  padding: "2px 9px",
+                  letterSpacing: "0.05em",
+                  background: "rgba(255,255,255,0.03)",
+                }}
+              >
+                {t.tag}
+              </div>
 
-            <div style={{ fontSize: 28, marginBottom: 16 }}>{t.icon}</div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: "#ccc", marginBottom: 8 }}>{t.name}</div>
-            <p style={{ fontSize: 13, color: "#444", lineHeight: 1.65, margin: 0 }}>{t.desc}</p>
-          </div>
-        ))}
+              <div
+                style={{
+                  fontSize: 15,
+                  fontWeight: 600,
+                  color: "#e8e8e8",
+                  marginBottom: 10,
+                  lineHeight: 1.3,
+                  paddingRight: 60,
+                }}
+              >
+                {t.name}
+              </div>
+              <p
+                style={{
+                  fontSize: 13,
+                  color: "#777",
+                  lineHeight: 1.7,
+                  margin: 0,
+                }}
+              >
+                {t.desc}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   )
