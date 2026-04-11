@@ -6,15 +6,27 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"net/netip"
+	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	dockerclient "github.com/moby/moby/client"
 )
 
 const workspaceImage = "ubuntu:22.04"
+
+// hostPorts lists the backend services on the host that workspace containers
+// must NOT be able to reach (backend API, proxy, postgres).
+var hostServicePorts = []string{"8081", "8082", "5432", "5433"}
+
+// firewallOnce ensures iptables rules are installed exactly once per process.
+var firewallOnce sync.Once
 
 // WorkspaceConfig defines the resource spec for a user workspace.
 type WorkspaceConfig struct {
@@ -37,21 +49,24 @@ type WorkspaceInfo struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// AllocateWorkspace creates an Ubuntu container with host networking (for
-// internet access), SSH + sudo, resource limits, and waits until SSH is ready.
+// AllocateWorkspace creates an Ubuntu container with bridge networking (for
+// internet access via NAT), SSH + sudo, resource limits, and waits until SSH
+// is ready. The container is isolated from host services via iptables.
 func (m *Manager) AllocateWorkspace(ctx context.Context, cfg WorkspaceConfig) (*WorkspaceInfo, error) {
+	// Block docker bridge from reaching host backend services (runs once).
+	installFirewallRules()
+
 	password := randomHex(16)
 	username := "hackx"
 
-	// Pick a free port on the host for sshd to bind to.
-	// With network_mode: host, port bindings are ignored — sshd must listen on
-	// a specific port we choose here.
+	// Pick a free host port; Docker will map it to container port 22.
 	sshPort, err := freePort()
 	if err != nil {
 		return nil, fmt.Errorf("find free port: %w", err)
 	}
 
-	// Inline setup script. Runs as PID 1; sshd takes over at the end.
+	// Inline setup script. sshd listens on port 22 (default) — Docker handles
+	// the host:sshPort → container:22 mapping via PortBindings.
 	setup := fmt.Sprintf(`
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
@@ -63,7 +78,6 @@ echo '%s ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 mkdir -p /run/sshd
 echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
 echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
-echo 'Port %d' >> /etc/ssh/sshd_config
 ssh-keygen -A -q
 cat > /etc/motd << 'EOF'
 
@@ -77,7 +91,7 @@ cat > /etc/motd << 'EOF'
 
 EOF
 exec /usr/sbin/sshd -D
-`, username, username, password, username, username, sshPort, cfg.RAMMb, cfg.CPUCores)
+`, username, username, password, username, username, cfg.RAMMb, cfg.CPUCores)
 
 	// Pull image (no-op if already cached).
 	pull, err := m.client.ImagePull(ctx, workspaceImage, dockerclient.ImagePullOptions{})
@@ -87,26 +101,55 @@ exec /usr/sbin/sshd -D
 	io.Copy(io.Discard, pull)
 	pull.Close()
 
+	// Bind host:sshPort → container:22.
+	sshTCP, _ := network.ParsePort("22/tcp")
+
 	resp, err := m.client.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
 		Name: fmt.Sprintf("zkloud-ws-%s-%d", cfg.TeamID, time.Now().UnixNano()),
 		Config: &container.Config{
 			Image: workspaceImage,
 			Cmd:   []string{"/bin/bash", "-c", setup},
+			ExposedPorts: network.PortSet{
+				sshTCP: struct{}{},
+			},
 			Labels: map[string]string{
 				"zkloud.team": cfg.TeamID,
 				"zkloud.type": "workspace",
 			},
 		},
 		HostConfig: &container.HostConfig{
-			// Host networking gives the container full internet access and
-			// lets sshd bind directly to the chosen host port.
-			NetworkMode: "host",
+			// Bridge networking: container gets its own network namespace.
+			// localhost inside the container is the container — not the host.
+			// Internet access works via Docker NAT (no need for host networking).
+			NetworkMode: "bridge",
+			DNS: []netip.Addr{
+				netip.MustParseAddr("8.8.8.8"),
+				netip.MustParseAddr("1.1.1.1"),
+			},
+			PortBindings: network.PortMap{
+				sshTCP: []network.PortBinding{
+					{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: fmt.Sprintf("%d", sshPort)},
+				},
+			},
 			Resources: container.Resources{
 				Memory:   cfg.RAMMb * 1024 * 1024,
 				NanoCPUs: int64(cfg.CPUCores * 1e9),
 			},
-			// Expose Docker socket so the agent can build/run containers inside.
-			Binds: []string{"/var/run/docker.sock:/var/run/docker.sock"},
+			// Drop capabilities that could be used to break out of the container
+			// or affect the host kernel/network. Keep what's needed for SSH + sudo.
+			CapDrop: []string{
+				"NET_ADMIN",   // cannot modify host iptables/routing from inside
+				"SYS_ADMIN",   // cannot mount filesystems, change namespaces, etc.
+				"SYS_PTRACE",  // cannot trace/inspect other processes
+				"SYS_MODULE",  // cannot load/unload kernel modules
+				"SYS_RAWIO",   // cannot perform raw I/O (disk access)
+				"SYS_BOOT",    // cannot reboot/kexec the host
+				"NET_RAW",     // cannot craft raw packets (prevents some network attacks)
+				"SYS_PACCT",   // process accounting
+			},
+			// No docker.sock mount — prevents container from controlling the Docker
+			// daemon and escaping to the host.
+			Binds: []string{},
 		},
 	})
 	if err != nil {
@@ -140,6 +183,28 @@ exec /usr/sbin/sshd -D
 	}()
 
 	return ws, nil
+}
+
+// installFirewallRules inserts iptables rules in the DOCKER-USER chain to
+// block workspace containers (on docker0) from reaching host backend services.
+// Runs at most once per process lifetime.
+func installFirewallRules() {
+	firewallOnce.Do(func() {
+		for _, port := range hostServicePorts {
+			// Block traffic coming in on docker0 (bridge) destined for these host ports.
+			// -C checks if the rule already exists before inserting to avoid duplicates.
+			checkArgs := []string{"-C", "DOCKER-USER", "-i", "docker0", "-p", "tcp", "--dport", port, "-j", "DROP"}
+			if err := exec.Command("iptables", checkArgs...).Run(); err != nil {
+				// Rule doesn't exist yet — insert it.
+				insertArgs := []string{"-I", "DOCKER-USER", "-i", "docker0", "-p", "tcp", "--dport", port, "-j", "DROP"}
+				if out, err := exec.Command("iptables", insertArgs...).CombinedOutput(); err != nil {
+					log.Printf("[firewall] WARNING: failed to insert iptables rule for port %s: %v — %s", port, err, out)
+				} else {
+					log.Printf("[firewall] blocked docker0 → host port %s", port)
+				}
+			}
+		}
+	})
 }
 
 // freePort asks the OS for an available TCP port.
