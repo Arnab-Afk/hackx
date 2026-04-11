@@ -27,6 +27,7 @@ services:
       DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /vm-storage:/vm-storage  # same path inside container as on host — Docker daemon resolves bind-mount paths on the host
     depends_on:
       postgres:
         condition: service_healthy
