@@ -31,9 +31,10 @@ var firewallOnce sync.Once
 
 // WorkspaceConfig defines the resource spec for a user workspace.
 type WorkspaceConfig struct {
-	TeamID   string
-	RAMMb    int64   // e.g. 2048
-	CPUCores float64 // e.g. 2.0
+	TeamID    string
+	RAMMb     int64   // e.g. 2048
+	CPUCores  float64 // e.g. 2.0
+	VaultKey  string  // hex vault key for LUKS home encryption; random if empty
 }
 
 // WorkspaceInfo is returned after the workspace is ready.
@@ -67,6 +68,17 @@ func (m *Manager) AllocateWorkspace(ctx context.Context, cfg WorkspaceConfig) (*
 	storageDir := fmt.Sprintf("/vm-storage/workspaces/%s", cfg.TeamID)
 	if err := os.MkdirAll(storageDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create workspace storage dir: %w", err)
+	}
+
+	// Create (or re-open) an encrypted LUKS home directory on the host and
+	// bind-mount the decrypted path into the container.  The workspace user
+	// sees a normal filesystem; on disk everything is AES-256 ciphertext.
+	homePath, err := setupLUKSHome(storageDir, cfg.VaultKey)
+	if err != nil {
+		log.Printf("[workspace] LUKS setup failed (%v) — falling back to unencrypted home", err)
+		homePath = storageDir // graceful degradation
+	} else {
+		log.Printf("[workspace] LUKS home ready at %s", homePath)
 	}
 
 	// Short, human-readable hostname shown in the shell prompt.
@@ -128,9 +140,9 @@ exec /usr/sbin/sshd -D
 	sshTCP, _ := network.ParsePort("22/tcp")
 	anyAddr := netip.MustParseAddr("0.0.0.0")
 
-	// Build bind list: persistent home on /vm-storage + lxcfs mounts if available.
+	// Build bind list: encrypted home on /vm-storage + lxcfs mounts if available.
 	binds := []string{
-		fmt.Sprintf("%s:/home/%s", storageDir, username),
+		fmt.Sprintf("%s:/home/%s", homePath, username),
 	}
 	binds = append(binds, lxcfsBinds()...)
 
@@ -201,7 +213,7 @@ exec /usr/sbin/sshd -D
 		Password:    password,
 		RAMMb:       cfg.RAMMb,
 		CPUCores:    cfg.CPUCores,
-		StoragePath: storageDir,
+		StoragePath: storageDir + "/vault.img",
 		Status:      "provisioning",
 		CreatedAt:   time.Now().UTC(),
 	}

@@ -324,9 +324,10 @@ func (s *Server) getActionLog(w http.ResponseWriter, r *http.Request) {
 // POST /workspaces
 func (s *Server) allocateWorkspace(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TeamID   string  `json:"team_id"`
-		RAMMb    int64   `json:"ram_mb"`
-		CPUCores float64 `json:"cpu_cores"`
+		TeamID    string  `json:"team_id"`
+		RAMMb     int64   `json:"ram_mb"`
+		CPUCores  float64 `json:"cpu_cores"`
+		SessionID string  `json:"session_id"` // optional — used to derive blockchain-gated vault key
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" {
 		http.Error(w, "team_id is required", http.StatusBadRequest)
@@ -345,12 +346,25 @@ func (s *Server) allocateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("[workspace] allocating for team %s (ram=%dMB cpu=%.1f)", req.TeamID, req.RAMMb, req.CPUCores)
+	// Derive vault key from EAS attestation if a session_id was provided.
+	var vaultKey string
+	if req.SessionID != "" {
+		att, err := s.store.GetAttestation(r.Context(), req.SessionID)
+		if err == nil && att != nil && att.AttestationUID != "" {
+			vaultKey, _ = deriveVaultKey(att.AttestationUID)
+			log.Printf("[workspace] vault key derived from attestation uid=%s", att.AttestationUID)
+		} else {
+			log.Printf("[workspace] session %s has no attestation — using random vault key", req.SessionID)
+		}
+	}
+
+	log.Printf("[workspace] allocating for team %s (ram=%dMB cpu=%.1f encrypted=%v)", req.TeamID, req.RAMMb, req.CPUCores, vaultKey != "")
 
 	ws, err := s.mgr.AllocateWorkspace(r.Context(), container.WorkspaceConfig{
 		TeamID:   req.TeamID,
 		RAMMb:    req.RAMMb,
 		CPUCores: req.CPUCores,
+		VaultKey: vaultKey,
 	})
 	if err != nil {
 		http.Error(w, fmt.Sprintf("allocate workspace: %v", err), http.StatusInternalServerError)

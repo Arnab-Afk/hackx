@@ -27,9 +27,11 @@ services:
       DATABASE_URL: postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable
       PROXY_URL: http://localhost:8082
       DOCKER_HOST: unix:///var/run/docker.sock
+    privileged: true   # needed for cryptsetup/LUKS to encrypt workspace home dirs on the host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /vm-storage:/vm-storage  # same path inside container as on host — Docker daemon resolves bind-mount paths on the host
+      - /dev:/dev                # loop devices for LUKS
     depends_on:
       postgres:
         condition: service_healthy
