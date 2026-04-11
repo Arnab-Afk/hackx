@@ -49,6 +49,9 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 
 	r.Delete("/containers/{containerID}", srv.destroyContainer)
 
+	r.Post("/workspaces", srv.allocateWorkspace)
+	r.Delete("/workspaces/{containerID}", srv.destroyWorkspace)
+
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -216,6 +219,56 @@ func (s *Server) getActionLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, log)
+}
+
+// POST /workspaces
+func (s *Server) allocateWorkspace(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TeamID   string  `json:"team_id"`
+		RAMMb    int64   `json:"ram_mb"`
+		CPUCores float64 `json:"cpu_cores"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" {
+		http.Error(w, "team_id is required", http.StatusBadRequest)
+		return
+	}
+	if req.RAMMb == 0 {
+		req.RAMMb = 2048
+	}
+	if req.CPUCores == 0 {
+		req.CPUCores = 2.0
+	}
+
+	// Verify team exists
+	if _, err := s.store.GetTeam(r.Context(), req.TeamID); err != nil {
+		http.Error(w, "team not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("[workspace] allocating for team %s (ram=%dMB cpu=%.1f)", req.TeamID, req.RAMMb, req.CPUCores)
+
+	ws, err := s.mgr.AllocateWorkspace(r.Context(), container.WorkspaceConfig{
+		TeamID:   req.TeamID,
+		RAMMb:    req.RAMMb,
+		CPUCores: req.CPUCores,
+	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("allocate workspace: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[workspace] ready — container=%s ssh=localhost:%d user=%s", ws.ContainerID, ws.SSHPort, ws.Username)
+	jsonResponse(w, http.StatusCreated, ws)
+}
+
+// DELETE /workspaces/:containerID
+func (s *Server) destroyWorkspace(w http.ResponseWriter, r *http.Request) {
+	containerID := chi.URLParam(r, "containerID")
+	if err := s.mgr.Destroy(r.Context(), containerID); err != nil {
+		http.Error(w, fmt.Sprintf("destroy workspace: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // DELETE /containers/:containerID
