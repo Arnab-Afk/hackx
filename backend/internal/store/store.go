@@ -33,6 +33,25 @@ type ActionLog struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Attestation struct {
+	ID           int64     `json:"id"`
+	SessionID    string    `json:"session_id"`
+	TxHash       string    `json:"tx_hash"`
+	MerkleRoot   string    `json:"merkle_root"`
+	SchemaUID    string    `json:"schema_uid"`
+	EASScanURL   string    `json:"eas_scan_url"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type ProviderRecord struct {
+	Address       string    `json:"address"`
+	Endpoint      string    `json:"endpoint"`
+	PricePerHour  string    `json:"price_per_hour"` // wei as string
+	JobsCompleted int64     `json:"jobs_completed"`
+	SelectedAt    time.Time `json:"selected_at"`
+	SessionID     string    `json:"session_id"`
+}
+
 type Store struct {
 	pool *pgxpool.Pool
 }
@@ -72,6 +91,26 @@ func (s *Store) Migrate(ctx context.Context) error {
 			team_id    TEXT NOT NULL,
 			actions    JSONB NOT NULL DEFAULT '[]',
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+
+		CREATE TABLE IF NOT EXISTS attestations (
+			id           BIGSERIAL PRIMARY KEY,
+			session_id   TEXT NOT NULL REFERENCES sessions(id),
+			tx_hash      TEXT NOT NULL,
+			merkle_root  TEXT NOT NULL DEFAULT '',
+			schema_uid   TEXT NOT NULL DEFAULT '',
+			eas_scan_url TEXT NOT NULL DEFAULT '',
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+
+		CREATE TABLE IF NOT EXISTS provider_selections (
+			id             BIGSERIAL PRIMARY KEY,
+			session_id     TEXT NOT NULL REFERENCES sessions(id),
+			address        TEXT NOT NULL,
+			endpoint       TEXT NOT NULL,
+			price_per_hour TEXT NOT NULL DEFAULT '0',
+			jobs_completed BIGINT NOT NULL DEFAULT 0,
+			selected_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
 	`)
 	return err
@@ -155,4 +194,48 @@ func (s *Store) GetActionLog(ctx context.Context, sessionID string) (*ActionLog,
 		return nil, err
 	}
 	return &log, nil
+}
+
+// --- Attestations ---
+
+func (s *Store) SaveAttestation(ctx context.Context, a *Attestation) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO attestations (session_id, tx_hash, merkle_root, schema_uid, eas_scan_url)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		a.SessionID, a.TxHash, a.MerkleRoot, a.SchemaUID, a.EASScanURL)
+	return err
+}
+
+func (s *Store) GetAttestation(ctx context.Context, sessionID string) (*Attestation, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, session_id, tx_hash, merkle_root, schema_uid, eas_scan_url, created_at
+		 FROM attestations WHERE session_id=$1 ORDER BY id DESC LIMIT 1`, sessionID)
+	var a Attestation
+	err := row.Scan(&a.ID, &a.SessionID, &a.TxHash, &a.MerkleRoot, &a.SchemaUID, &a.EASScanURL, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// --- Provider selections ---
+
+func (s *Store) SaveProviderSelection(ctx context.Context, p *ProviderRecord) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO provider_selections (session_id, address, endpoint, price_per_hour, jobs_completed)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		p.SessionID, p.Address, p.Endpoint, p.PricePerHour, p.JobsCompleted)
+	return err
+}
+
+func (s *Store) GetProviderSelection(ctx context.Context, sessionID string) (*ProviderRecord, error) {
+	row := s.pool.QueryRow(ctx,
+		`SELECT session_id, address, endpoint, price_per_hour, jobs_completed, selected_at
+		 FROM provider_selections WHERE session_id=$1 ORDER BY id DESC LIMIT 1`, sessionID)
+	var p ProviderRecord
+	err := row.Scan(&p.SessionID, &p.Address, &p.Endpoint, &p.PricePerHour, &p.JobsCompleted, &p.SelectedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
 }

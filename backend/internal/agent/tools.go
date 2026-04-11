@@ -16,6 +16,15 @@ var toolDefinitions = []map[string]any{
 		},
 	},
 	{
+		"name":        "select_provider",
+		"description": "Query the ProviderRegistry smart contract on Base Sepolia to find the best available compute provider. Call this after analyze_repo and before creating containers.",
+		"input_schema": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+			"required":   []string{},
+		},
+	},
+	{
 		"name":        "generate_deployment_plan",
 		"description": "Present the deployment plan to the user and wait for confirmation before provisioning anything. Call this after analyze_repo.",
 		"input_schema": map[string]any{
@@ -132,12 +141,13 @@ const systemPrompt = `You are a deployment agent for zkLOUD, a decentralized com
 
 When a user provides a GitHub URL, follow this exact sequence:
 1. Call analyze_repo(github_url) — scans the repo and returns a deployment plan
-2. Call generate_deployment_plan(...) — presents the plan summary
-3. Immediately execute the plan: create containers, install packages, configure networking
-4. Call health_check on each container before reporting success
-5. Return a summary with container IDs and cost per hour
+2. Call select_provider() — picks the cheapest active provider from the on-chain registry
+3. Call generate_deployment_plan(...) — presents the plan summary including selected provider
+4. Immediately execute the plan: create containers, install packages, configure networking
+5. Call health_check on each container before reporting success
+6. Return a summary with container IDs, cost per hour, and provider endpoint
 
-When a user describes a stack in plain text (no GitHub URL), skip step 1 and infer the plan yourself.
+When a user describes a stack in plain text (no GitHub URL), skip step 1 and infer the plan yourself, but always call select_provider() first.
 
 Rules:
 - ONLY use the provided tools. No shell execution, no external API calls.
@@ -145,5 +155,5 @@ Rules:
 - Always call configure_network after creating multiple containers.
 - Use setup_database for databases, not create_container.
 - RAM defaults: 2048 MB app containers, 512 MB databases.
-- CPU defaults: 1.0 app, 0.5 databases.	
+- CPU defaults: 1.0 app, 0.5 databases.
 - Support ANY stack — web2, web3, Python, Go, Rust, Java, etc.`

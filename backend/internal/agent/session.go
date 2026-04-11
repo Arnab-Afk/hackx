@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arnab-Afk/hackx/backend/internal/chain"
 	"github.com/Arnab-Afk/hackx/backend/internal/container"
 	"github.com/Arnab-Afk/hackx/backend/internal/scanner"
 )
@@ -45,18 +46,21 @@ type Event struct {
 
 // Session manages one agent deployment conversation.
 type Session struct {
-	ID       string
-	TeamID   string
-	State    SessionState
-	Actions  []Action
-	Plan     *scanner.DeploymentPlan // set after analyze_repo
+	ID               string
+	TeamID           string
+	State            SessionState
+	Actions          []Action
+	Plan             *scanner.DeploymentPlan // set after analyze_repo
+	SelectedProvider *chain.Provider         // set after select_provider
 
-	mgr      *container.Manager
-	scanner  *scanner.Scanner
-	proxyURL string // antigravity proxy base URL (used when apiKey is empty)
-	apiKey   string // Anthropic API key for direct calls (preferred)
-	model    string // Claude model for deployment agent
-	events   chan Event
+	mgr             *container.Manager
+	scanner         *scanner.Scanner
+	proxyURL        string // antigravity proxy base URL (used when apiKey is empty)
+	apiKey          string // Anthropic API key for direct calls (preferred)
+	model           string // Claude model for deployment agent
+	events          chan Event
+	rpcURL          string // Base Sepolia RPC URL
+	registryAddress string // ProviderRegistry contract address
 }
 
 // anthropic API types (minimal)
@@ -95,20 +99,22 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model, rpcURL, registryAddress string) *Session {
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
 	}
 	return &Session{
-		ID:       id,
-		TeamID:   teamID,
-		State:    StateRunning,
-		mgr:      mgr,
-		scanner:  sc,
-		proxyURL: proxyURL,
-		apiKey:   apiKey,
-		model:    model,
-		events:   make(chan Event, 64),
+		ID:              id,
+		TeamID:          teamID,
+		State:           StateRunning,
+		mgr:             mgr,
+		scanner:         sc,
+		proxyURL:        proxyURL,
+		apiKey:          apiKey,
+		model:           model,
+		events:          make(chan Event, 64),
+		rpcURL:          rpcURL,
+		registryAddress: registryAddress,
 	}
 }
 
@@ -200,6 +206,28 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 // executeTool dispatches a named tool call to the container manager or scanner.
 func (s *Session) executeTool(ctx context.Context, name string, input map[string]any) (any, error) {
 	switch name {
+	case "select_provider":
+		s.emit(Event{Type: "message", Message: "Querying ProviderRegistry on Base Sepolia..."})
+		provider, err := chain.SelectProvider(ctx, s.rpcURL, s.registryAddress)
+		if err != nil {
+			// Fall back gracefully so the demo doesn't break if chain is unreachable
+			s.emit(Event{Type: "message", Message: fmt.Sprintf("Warning: could not query on-chain providers (%v). Using local node.", err)})
+			return map[string]any{
+				"endpoint":       "http://localhost:8081",
+				"price_per_hour": "0",
+				"jobs_completed": 0,
+				"source":         "fallback",
+			}, nil
+		}
+		s.SelectedProvider = provider
+		return map[string]any{
+			"wallet":         provider.Wallet.Hex(),
+			"endpoint":       provider.Endpoint,
+			"price_per_hour": provider.PricePerHour.String(),
+			"jobs_completed": provider.JobsCompleted.Uint64(),
+			"source":         "on-chain",
+		}, nil
+
 	case "analyze_repo":
 		url := stringField(input, "github_url")
 		if url == "" {
