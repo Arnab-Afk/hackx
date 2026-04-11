@@ -3,12 +3,11 @@ version: "3.9"
 services:
   postgres:
     image: postgres:16-alpine
+    network_mode: host
     environment:
       POSTGRES_USER: zkloud
       POSTGRES_PASSWORD: zkloud
       POSTGRES_DB: zkloud
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -19,11 +18,11 @@ services:
 
   backend:
     build: ./backend
-    ports:
-      - "8080:8080"
+    network_mode: host
     environment:
-      PORT: "8080"
-      DATABASE_URL: postgres://zkloud:zkloud@postgres:5432/zkloud?sslmode=disable
+      PORT: "8081"
+      # With host networking, postgres is reachable on localhost
+      DATABASE_URL: postgres://zkloud:zkloud@localhost:5432/zkloud?sslmode=disable
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
