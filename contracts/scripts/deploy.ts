@@ -10,11 +10,14 @@ async function main() {
   const balance = await ethers.provider.getBalance(deployer.address);
   console.log("Balance:", ethers.formatEther(balance), "ETH\n");
 
+  // Get confirmed nonce from chain (avoid caching issues)
+  let nonce = await ethers.provider.getTransactionCount(deployer.address, "latest");
+  console.log("Starting nonce:", nonce);
+
   // ─── Deploy ProviderRegistry ───────────────────────────────────────────────
   console.log("Deploying ProviderRegistry...");
   const ProviderRegistry = await ethers.getContractFactory("ProviderRegistry");
-  // Owner = deployer; slash authority = deployer initially (update after backend wallet is known)
-  const registry = await ProviderRegistry.deploy(deployer.address, deployer.address);
+  const registry = await ProviderRegistry.deploy(deployer.address, deployer.address, { nonce: nonce++ });
   await registry.waitForDeployment();
   const registryAddress = await registry.getAddress();
   console.log("ProviderRegistry deployed to:", registryAddress);
@@ -22,8 +25,7 @@ async function main() {
   // ─── Deploy DeploymentEscrow ───────────────────────────────────────────────
   console.log("\nDeploying DeploymentEscrow...");
   const DeploymentEscrow = await ethers.getContractFactory("DeploymentEscrow");
-  // Args: initialOwner, releaseAuthority, registry address
-  const escrow = await DeploymentEscrow.deploy(deployer.address, deployer.address, registryAddress);
+  const escrow = await DeploymentEscrow.deploy(deployer.address, deployer.address, { nonce: nonce++ });
   await escrow.waitForDeployment();
   const escrowAddress = await escrow.getAddress();
   console.log("DeploymentEscrow deployed to:", escrowAddress);

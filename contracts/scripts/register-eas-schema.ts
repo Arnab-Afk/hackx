@@ -22,8 +22,8 @@ import * as path from "path";
 // EAS SchemaRegistry address on Base Sepolia
 // Source: https://docs.attest.org/docs/quick--start/contracts
 const EAS_SCHEMA_REGISTRY: Record<string, string> = {
-  baseSepolia: "0x0a7E2Ff54e76B8E6659aedc9103FB21c038050D0",
-  hardhat:     "0x0000000000000000000000000000000000000000", // local placeholder
+  baseSepolia: "0x4200000000000000000000000000000000000020", // EAS predeploy on Base Sepolia
+  hardhat:     "0x0000000000000000000000000000000000000000",
 };
 
 // Minimal ABI — only the register function we need
@@ -63,16 +63,15 @@ async function main() {
   const receipt = await tx.wait();
 
   // Parse the Registered event to get the schema UID
-  const iface = new ethers.Interface(SCHEMA_REGISTRY_ABI);
+  // EAS SchemaRegistry emits: Registered(bytes32 indexed uid, address indexed registerer, SchemaRecord schema)
+  // The UID is in topics[1] (first indexed param)
   let schemaUid = "";
   for (const log of receipt.logs) {
-    try {
-      const parsed = iface.parseLog(log);
-      if (parsed?.name === "Registered") {
-        schemaUid = parsed.args.uid;
-        break;
-      }
-    } catch { /* skip unrelated logs */ }
+    // topic[0] is the event signature keccak256("Registered(bytes32,address,(bytes32,address,bool,string))")
+    if (log.topics.length >= 2) {
+      schemaUid = log.topics[1];
+      break;
+    }
   }
 
   console.log("\n✅ EAS schema registered!");

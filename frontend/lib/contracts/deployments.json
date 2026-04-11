@@ -1,9 +1,9 @@
 {
   "baseSepolia": {
-    "ProviderRegistry": "",
-    "DeploymentEscrow": "",
-    "EASSchemaUID": "",
-    "deployedAt": "",
-    "deployer": ""
+    "ProviderRegistry": "0x889a1EB1489626F39C84b880a67e5eeAE3dD6884",
+    "DeploymentEscrow": "0x5f4eb5a650Cc01c93e1c6A94a06d7551b6b35E76",
+    "deployedAt": "2026-04-11T10:08:04.780Z",
+    "deployer": "0x0B991EC39517acb9f6f0C2954c5AA1426a94D504",
+    "EASSchemaUID": "0x001219cb6b1ad28ce53a643f532872015acab85429133286b9e2c96e910945f0"
   }
 }
