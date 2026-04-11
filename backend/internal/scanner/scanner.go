@@ -59,6 +59,17 @@ func New(proxyURL, model string) *Scanner {
 	return &Scanner{proxyURL: proxyURL, model: model}
 }
 
+// extractRepoRoot converts a GitHub tree/blob URL to a clonable root URL.
+// e.g. https://github.com/user/repo/tree/main/subdir → https://github.com/user/repo
+func extractRepoRoot(rawURL string) string {
+	// Match https://github.com/<owner>/<repo>(/...)?
+	parts := strings.SplitN(rawURL, "/", 6) // ["https:", "", "github.com", owner, repo, rest...]
+	if len(parts) >= 5 && strings.Contains(rawURL, "github.com") {
+		return strings.Join(parts[:5], "/")
+	}
+	return rawURL
+}
+
 // AnalyzeRepo clones the repo and returns a deployment plan.
 // githubToken is optional — provide it for private repos.
 func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string, githubToken ...string) (*DeploymentPlan, error) {
@@ -68,11 +79,11 @@ func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string, githubToken .
 	}
 	defer os.RemoveAll(dir)
 
-	cloneURL := repoURL
+	cloneURL := extractRepoRoot(repoURL)
 	// For private repos: inject token into the URL
 	// https://github.com/user/repo → https://x-access-token:<token>@github.com/user/repo
 	if len(githubToken) > 0 && githubToken[0] != "" {
-		cloneURL = injectToken(repoURL, githubToken[0])
+		cloneURL = injectToken(cloneURL, githubToken[0])
 	}
 
 	_, err = git.PlainCloneContext(ctx, dir, false, &git.CloneOptions{
