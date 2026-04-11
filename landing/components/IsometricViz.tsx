@@ -31,11 +31,11 @@ export function IsometricViz() {
     resize()
 
     // ── Isometric projection ─────────────────────────────────────────
-    const TW = 42   // screen x-delta per grid unit
-    const TH = 24   // screen y-delta per grid unit
-    const ZU = 26   // screen y-delta per z-unit (upward)
+    const TW = 32   // screen x-delta per grid unit
+    const TH = 18   // screen y-delta per grid unit
+    const ZU = 20   // screen y-delta per z-unit (upward)
 
-    const ox = () => W * 0.58
+    const ox = () => W * 0.70
     const oy = () => H * 0.54
 
     const sx = (gx: number, gy: number) => ox() + (gx - gy) * TW
@@ -79,8 +79,8 @@ export function IsometricViz() {
     // Horizontal slot lines on the right face of a box (server-rack look)
     function rackLines(gx: number, gy: number, gz: number, w: number, h: number, d: number, slots: number) {
       ctx!.save()
-      ctx!.strokeStyle = "rgba(255,255,255,0.07)"
-      ctx!.lineWidth = 0.5
+      ctx!.strokeStyle = "rgba(160,160,180,0.35)"
+      ctx!.lineWidth = 0.8
       for (let i = 1; i <= slots; i++) {
         const lz = gz + (d * i / (slots + 1))
         ctx!.beginPath()
@@ -99,8 +99,9 @@ export function IsometricViz() {
     function drawGrid() {
       const G = 13
       ctx!.save()
-      ctx!.strokeStyle = "rgba(255,255,255,0.032)"
-      ctx!.lineWidth = 0.5
+      ctx!.setLineDash([2, 6])
+      ctx!.strokeStyle = "rgba(100,80,200,0.35)"
+      ctx!.lineWidth = 0.7
       for (let x = -G; x <= G; x++) {
         ctx!.beginPath()
         ctx!.moveTo(sx(x, -G), sy(x, -G))
@@ -113,12 +114,13 @@ export function IsometricViz() {
         ctx!.lineTo(sx( G, y), sy( G, y))
         ctx!.stroke()
       }
+      ctx!.setLineDash([])
       // Intersection dots
-      ctx!.fillStyle = "rgba(255,255,255,0.07)"
+      ctx!.fillStyle = "rgba(130,100,220,0.25)"
       for (let x = -G; x <= G; x++) {
         for (let y = -G; y <= G; y++) {
           ctx!.beginPath()
-          ctx!.arc(sx(x, y), sy(x, y), 0.9, 0, Math.PI * 2)
+          ctx!.arc(sx(x, y), sy(x, y), 1.0, 0, Math.PI * 2)
           ctx!.fill()
         }
       }
@@ -152,15 +154,15 @@ export function IsometricViz() {
       ]
       ctx!.save()
       ctx!.globalAlpha = a
-      face(p, "rgba(14,10,35,0.8)", "rgba(90,55,200,0.45)", 0.7)
+      face(p, "rgba(10,7,28,0.92)", "rgba(150,150,170,0.5)", 0.9)
       const cx2 = p.reduce((s, q) => s + q[0], 0) / 4
       const cy2 = p.reduce((s, q) => s + q[1], 0) / 4
       ctx!.translate(cx2, cy2)
       ctx!.rotate(-0.52)
       ctx!.textAlign = "center"
       ctx!.textBaseline = "middle"
-      ctx!.fillStyle = "rgba(140,100,255,0.9)"
-      ctx!.font = "bold 9px -apple-system, BlinkMacSystemFont, sans-serif"
+      ctx!.fillStyle = "rgba(210,180,255,1.0)"
+      ctx!.font = "bold 10px -apple-system, BlinkMacSystemFont, sans-serif"
       ctx!.fillText(label, 0, 0)
       ctx!.restore()
     }
@@ -181,6 +183,14 @@ export function IsometricViz() {
       { gx: -8.5, gy:  1,   w: 3.2, h: 2.2, d: 4.2, phase: 2.3, spd: 0.58, label: "LUKS2",        sub: "encrypted" },
       { gx:  1.5, gy:  6,   w: 2.8, h: 2.2, d: 2.8, phase: 0.7, spd: 0.75, label: "EAS",          sub: "on-chain" },
       { gx:  6.5, gy:  1,   w: 2.2, h: 1.8, d: 2.2, phase: 1.9, spd: 0.48, label: "x402",         sub: "payments" },
+    ]
+
+    // Flat floor tiles (on-grid labels)
+    const TILES = [
+      { gx: -6.0, gy: -11.5, w: 3.0, h: 2.2, label: "GitHub",      sub: "open source" },
+      { gx:  8.0, gy: -3.0,  w: 2.8, h: 2.0, label: "Base",        sub: "L2 chain" },
+      { gx:  9.0, gy:  4.5,  w: 2.6, h: 2.0, label: "USDC",        sub: "micropay" },
+      { gx:  1.0, gy:  8.5,  w: 3.0, h: 2.2, label: "Attestation", sub: "EAS schema" },
     ]
 
     const topLayer = PLATFORM[PLATFORM.length - 1]
@@ -204,8 +214,32 @@ export function IsometricViz() {
 
       // Floor pill labels
       drawPill(-7.5, 7.5, 4.5, 2.2, "Security",    0.6 + 0.1 * Math.sin(t * 0.4))
-      drawPill( 3,   8.5, 5,   2.2, "Attestation", 0.6 + 0.1 * Math.sin(t * 0.4 + 1.1))
       drawPill( 7.5, -0.5, 3.5, 2,  "Payments",    0.55 + 0.1 * Math.sin(t * 0.4 + 2.2))
+
+      // Flat floor tiles
+      TILES.forEach((tile) => {
+        const p: [number,number][] = [
+          [sx(tile.gx, tile.gy),           sy(tile.gx, tile.gy)],
+          [sx(tile.gx+tile.w, tile.gy),    sy(tile.gx+tile.w, tile.gy)],
+          [sx(tile.gx+tile.w, tile.gy+tile.h), sy(tile.gx+tile.w, tile.gy+tile.h)],
+          [sx(tile.gx, tile.gy+tile.h),    sy(tile.gx, tile.gy+tile.h)],
+        ]
+        ctx!.save()
+        face(p, "rgba(18,14,42,0.88)", "rgba(150,130,200,0.5)", 0.9)
+        const cx2 = p.reduce((s,q) => s+q[0], 0) / 4
+        const cy2 = p.reduce((s,q) => s+q[1], 0) / 4
+        ctx!.translate(cx2, cy2)
+        ctx!.rotate(-0.52)
+        ctx!.textAlign = "center"
+        ctx!.textBaseline = "middle"
+        ctx!.fillStyle = "rgba(210,190,255,1.0)"
+        ctx!.font = "bold 10px -apple-system, BlinkMacSystemFont, sans-serif"
+        ctx!.fillText(tile.label, 0, -5)
+        ctx!.fillStyle = "rgba(140,120,200,0.85)"
+        ctx!.font = "8px -apple-system, BlinkMacSystemFont, sans-serif"
+        ctx!.fillText(tile.sub, 0, 6)
+        ctx!.restore()
+      })
 
       const ccy = chipcy()
 
@@ -238,7 +272,7 @@ export function IsometricViz() {
           : layer.tc
         drawBox(layer.gx, layer.gy, layer.z, layer.w, layer.h, layer.d,
           topC, layer.lc, layer.rc,
-          "rgba(120,75,255,0.35)", isTop ? 1.3 : 0.38)
+          "rgba(150,130,200,0.65)", isTop ? 1.4 : 0.8)
 
         // Circuit-trace lines on non-top layers
         if (!isTop) {
@@ -286,20 +320,20 @@ export function IsometricViz() {
       sorted.forEach((n) => {
         const bob = 0.3 * Math.sin(t * n.spd + n.phase)
         drawBox(n.gx, n.gy, bob, n.w, n.h, n.d,
-          "#1d1d32", "#111128", "#17172e",
-          "rgba(255,255,255,0.09)", 0.6)
+          "#252545", "#171738", "#32325a",
+          "rgba(160,160,180,0.55)", 1.0)
         rackLines(n.gx, n.gy, bob, n.w, n.h, n.d, Math.floor(n.d * 2))
 
         const lx = sx(n.gx + n.w / 2, n.gy + n.h / 2)
         const ly = sy(n.gx + n.w / 2, n.gy + n.h / 2, n.d + bob + 0.12)
         ctx!.textAlign = "center"
         ctx!.textBaseline = "middle"
-        ctx!.fillStyle = "#d2d2e8"
-        ctx!.font = "bold 9px -apple-system, BlinkMacSystemFont, sans-serif"
+        ctx!.fillStyle = "#ffffff"
+        ctx!.font = "bold 10px -apple-system, BlinkMacSystemFont, sans-serif"
         ctx!.fillText(n.label, lx, ly - 6)
-        ctx!.fillStyle = "#5a5a7a"
-        ctx!.font = "8px -apple-system, BlinkMacSystemFont, sans-serif"
-        ctx!.fillText(n.sub, lx, ly + 5)
+        ctx!.fillStyle = "#a0a0c8"
+        ctx!.font = "9px -apple-system, BlinkMacSystemFont, sans-serif"
+        ctx!.fillText(n.sub, lx, ly + 6)
       })
 
       t += 0.012
