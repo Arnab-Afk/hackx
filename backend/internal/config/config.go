@@ -5,22 +5,22 @@ import (
 )
 
 type Config struct {
-	Port            string
-	DatabaseURL     string
-	AnthropicAPIKey string
-	DockerHost      string
-	ProxyURL        string // antigravity-claude-proxy for Gemini
-	GeminiModel     string // model to use for repo scanning
+	Port        string
+	DatabaseURL string
+	DockerHost  string
+	ProxyURL    string // antigravity-claude-proxy base URL
+	ScanModel   string // Gemini model for repo scanning (heavier)
+	AgentModel  string // Gemini model for deployment agent (faster)
 }
 
 func Load() *Config {
 	return &Config{
-		Port:            getEnv("PORT", "8080"),
-		DatabaseURL:     getEnv("DATABASE_URL", "postgres://zkloud:zkloud@localhost:5432/zkloud?sslmode=disable"),
-		AnthropicAPIKey: mustEnv("ANTHROPIC_API_KEY"),
-		DockerHost:      getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
-		ProxyURL:        getEnv("PROXY_URL", "http://localhost:8080"),
-		GeminiModel:     getEnv("GEMINI_MODEL", "gemini-3.1-pro-high"),
+		Port:        getEnv("PORT", "8080"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://zkloud:zkloud@localhost:5432/zkloud?sslmode=disable"),
+		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8080"),
+		ScanModel:   getEnv("SCAN_MODEL", "gemini-3.1-pro-high"), // heavier — used once per deploy
+		AgentModel:  getEnv("AGENT_MODEL", "gemini-3-flash"),     // faster — used for tool loop
 	}
 }
 
@@ -31,10 +31,3 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func mustEnv(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		panic("required env var not set: " + key)
-	}
-	return v
-}

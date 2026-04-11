@@ -21,14 +21,15 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	mgr     *container.Manager
-	scanner *scanner.Scanner
-	store   *store.Store
-	apiKey  string
+	mgr        *container.Manager
+	scanner    *scanner.Scanner
+	store      *store.Store
+	proxyURL   string
+	agentModel string
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, apiKey string) http.Handler {
-	srv := &Server{mgr: mgr, scanner: sc, store: s, apiKey: apiKey}
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, agentModel string) http.Handler {
+	srv := &Server{mgr: mgr, scanner: sc, store: s, proxyURL: proxyURL, agentModel: agentModel}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -234,7 +235,7 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
 	}
 
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.apiKey)
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.agentModel)
 
 	// Forward events to bus
 	go func() {

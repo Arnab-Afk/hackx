@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Arnab-Afk/hackx/backend/internal/container"
@@ -52,7 +53,8 @@ type Session struct {
 
 	mgr      *container.Manager
 	scanner  *scanner.Scanner
-	apiKey   string
+	proxyURL string // antigravity proxy base URL
+	model    string // Gemini model for deployment agent
 	events   chan Event
 }
 
@@ -92,15 +94,19 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, apiKey string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, model string) *Session {
+	if model == "" {
+		model = "gemini-3-flash"
+	}
 	return &Session{
-		ID:      id,
-		TeamID:  teamID,
-		State:   StateRunning,
-		mgr:     mgr,
-		scanner: sc,
-		apiKey:  apiKey,
-		events:  make(chan Event, 64),
+		ID:       id,
+		TeamID:   teamID,
+		State:    StateRunning,
+		mgr:      mgr,
+		scanner:  sc,
+		proxyURL: proxyURL,
+		model:    model,
+		events:   make(chan Event, 64),
 	}
 }
 
@@ -294,7 +300,7 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 
 func (s *Session) callClaude(ctx context.Context, messages []anthropicMessage) (*anthropicResponse, error) {
 	req := anthropicRequest{
-		Model:     "claude-sonnet-4-6",
+		Model:     s.model,
 		MaxTokens: 4096,
 		System:    systemPrompt,
 		Tools:     toolDefinitions,
@@ -306,13 +312,13 @@ func (s *Session) callClaude(ctx context.Context, messages []anthropicMessage) (
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	url := strings.TrimRight(s.proxyURL, "/") + "/v1/messages"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", s.apiKey)
+	httpReq.Header.Set("x-api-key", "proxy")
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	httpResp, err := http.DefaultClient.Do(httpReq)

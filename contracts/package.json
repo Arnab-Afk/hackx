@@ -10,7 +10,8 @@
     "deploy:baseSepolia": "hardhat run scripts/deploy.ts --network baseSepolia",
     "eas:register": "hardhat run scripts/register-eas-schema.ts --network baseSepolia",
     "export:abis": "hardhat run scripts/export-abis.ts",
-    "verify:baseSepolia": "hardhat verify --network baseSepolia"
+    "verify:baseSepolia": "hardhat verify --network baseSepolia",
+    "become-provider": "hardhat run scripts/become-provider.ts --network baseSepolia"
   },
   "keywords": [],
   "author": "",

@@ -42,12 +42,12 @@ func main() {
 	}
 	log.Println("docker manager ready")
 
-	// --- Scanner (Gemini via proxy) ---
-	sc := scanner.New(cfg.ProxyURL, cfg.GeminiModel)
+	// --- Scanner (Gemini via proxy — heavy model, used once per deploy) ---
+	sc := scanner.New(cfg.ProxyURL, cfg.ScanModel)
 	log.Println("scanner ready")
 
 	// --- HTTP Server ---
-	handler := api.NewServer(mgr, sc, db, cfg.AnthropicAPIKey)
+	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, cfg.AgentModel)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      handler,
