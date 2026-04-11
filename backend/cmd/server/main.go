@@ -42,7 +42,7 @@ func main() {
 	}
 	log.Println("docker manager ready")
 
-	// --- Scanner (Gemini via proxy — heavy model, used once per deploy) ---
+	// --- Scanner (via proxy — used once per deploy) ---
 	sc := scanner.New(cfg.ProxyURL, cfg.ScanModel)
 	log.Println("scanner ready")
 
