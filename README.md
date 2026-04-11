@@ -1,4 +1,4 @@
-# Zkloud — Trustless Agentic Cloud Infrastructure
+# COMPUT3 — Trustless Agentic Cloud Infrastructure
 
 > **Tagline:** "Every cloud provider asks you to trust them. We're the only one that proves you can't."
 
@@ -26,7 +26,7 @@
 
 ## Executive Summary
 
-Zkloud is a trustless, AI-powered cloud infrastructure platform that lets developers deploy full-stack environments using natural language — with cryptographic, on-chain proof that nobody (including us) can access their code or data.
+COMPUT3 is a trustless, AI-powered cloud infrastructure platform that lets developers deploy full-stack environments using natural language — with cryptographic, on-chain proof that nobody (including us) can access their code or data.
 
 We combine four things that no existing platform offers together:
 
@@ -39,7 +39,7 @@ We combine four things that no existing platform offers together:
 
 | Node | Operator | RAM | Storage |
 |------|----------|-----|--------|
-| Provider #1 | zkLOUD core (host server) | 256 GB | 10 TB SSD |
+| Provider #1 | COMPUT3 core (host server) | 256 GB | 10 TB SSD |
 | Provider #2 | Team node | 32 GB+ | 1 TB+ |
 | Provider #3 | Team node | 32 GB+ | 1 TB+ |
 
@@ -65,7 +65,7 @@ With the rise of agentic AI in DevOps (Replit Agent, GitHub Copilot Workspace, e
 
 ## Solution Overview
 
-Zkloud solves both the cloud trust problem and the agent trust problem in a single platform.
+COMPUT3 solves both the cloud trust problem and the agent trust problem in a single platform.
 
 ### Three Pillars
 
@@ -162,7 +162,7 @@ Every action is logged and attested on-chain. This includes container lifecycle 
 │   - Schema: teamId, actionMerkleRoot,                │
 │     containerStateHash, sessionId, ipfsCid           │
 │   - Submitted by: the provider node's wallet         │
-│     (not zkLOUD — provider is individually liable)   │
+│     (not COMPUT3 — provider is individually liable)   │
 │   - Action log stored on IPFS, root on-chain         │
 │   - Queryable by anyone via BaseScan / EAS explorer  │
 └─────────────────────────────────────────────────────┘
@@ -186,7 +186,7 @@ Every action is logged and attested on-chain. This includes container lifecycle 
 │  └──────────┘  └──────────┘          │
 │                                      │
 │  Internal network: team42-net        │
-│  External: team42.Zkloud.xyz       │
+│  External: team42.comput3.xyz       │
 └──────────────────────────────────────┘
 ```
 
@@ -264,16 +264,16 @@ Agent Actions:
 Agent Response:
   "Your DeFi analytics stack is ready:
 
-   ✅ React frontend    → https://team42.Zkloud.xyz:3000
-   ✅ FastAPI backend    → https://team42.Zkloud.xyz:8000
+   ✅ React frontend    → https://team42.comput3.xyz:3000
+   ✅ FastAPI backend    → https://team42.comput3.xyz:8000
    ✅ PostgreSQL 16      → internal (backend can reach it at postgres:5432)
-   ✅ VS Code IDE        → https://team42.Zkloud.xyz/ide
+   ✅ VS Code IDE        → https://team42.comput3.xyz/ide
    ✅ 10 GB encrypted storage mounted to backend
 
    🔑 Your encryption key: [saved to browser, never sent to server]
    🔗 On-chain attestation: https://basescan.org/tx/0x4a2f...
    
-   SSH access: ssh team42@Zkloud.xyz
+   SSH access: ssh team42@comput3.xyz
 
    All 9 agent actions are logged in the attestation.
    Verify anytime that nothing extra was executed."
@@ -331,7 +331,7 @@ The `merkle_root` of all action hashes is what gets stored on-chain. Anyone can 
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-contract ZkloudAttestation {
+contract COMPUT3Attestation {
     
     struct Attestation {
         bytes32 teamId;
@@ -411,9 +411,9 @@ contract ZkloudAttestation {
 
 ### Alternative: Ethereum Attestation Service (EAS)
 
-Instead of a custom contract, Zkloud can use EAS for attestations. EAS is a public good for making attestations on-chain or off-chain. It provides a standardized schema system, is already deployed on multiple chains, and has existing block explorer integration.
+Instead of a custom contract, COMPUT3 can use EAS for attestations. EAS is a public good for making attestations on-chain or off-chain. It provides a standardized schema system, is already deployed on multiple chains, and has existing block explorer integration.
 
-Schema for Zkloud attestations:
+Schema for COMPUT3 attestations:
 
 ```
 bytes32 teamId,
@@ -483,10 +483,10 @@ string actionLogIPFS
 
 ```bash
 # One-line setup
-curl https://Zkloud.xyz/claim | sh
+curl https://comput3.xyz/claim | sh
 
 # Or via the web UI
-# 1. Visit Zkloud.xyz
+# 1. Visit comput3.xyz
 # 2. Connect wallet
 # 3. Describe your stack
 # 4. Start coding
@@ -500,7 +500,7 @@ curl https://Zkloud.xyz/claim | sh
 
 ```
 STEP 1: SIGN UP
-├── Visit Zkloud.xyz
+├── Visit comput3.xyz
 ├── Connect wallet (MetaMask, Rainbow, etc.)
 ├── Keypair generated in-browser (never leaves device)
 └── Team name registered
@@ -563,35 +563,35 @@ STEP 7: TEARDOWN
 | **Phala Network** | SDK / CLI | TEE-based | Yes (compute proofs) | Privacy-focused apps |
 | **Replit Agent** | Conversational | Trust-based | None | Beginners |
 | **GitHub Copilot Workspace** | Conversational | Trust-based | None | GitHub users |
-| **Zkloud (Us)** | Conversational | Encryption + proofs | Full action log (per-provider) | Hackathon teams, prototypers |
+| **COMPUT3 (Us)** | Conversational | Encryption + proofs | Full action log (per-provider) | Hackathon teams, prototypers |
 
 ### Why Not Fluence?
 
 Fluence is building a decentralized AWS — a general-purpose compute marketplace. Key differences:
 
-1. **Fluence has no confidential compute today.** Confidential computing with TEEs is listed as an R&D exploration item on their roadmap, not a shipping feature. For Zkloud, it's the core product.
+1. **Fluence has no confidential compute today.** Confidential computing with TEEs is listed as an R&D exploration item on their roadmap, not a shipping feature. For COMPUT3, it's the core product.
 
-2. **Fluence requires DevOps knowledge.** Users need to understand containers, configure deployments, and manage infrastructure through their console. Zkloud uses natural language — "I need React and MongoDB" — and an AI agent handles everything.
+2. **Fluence requires DevOps knowledge.** Users need to understand containers, configure deployments, and manage infrastructure through their console. COMPUT3 uses natural language — "I need React and MongoDB" — and an AI agent handles everything.
 
-3. **Fluence targets enterprise AI workloads.** Their 2026 focus is GPU compute for ML inference and training. Zkloud targets developers who need rapid prototyping environments with trust guarantees.
+3. **Fluence targets enterprise AI workloads.** Their 2026 focus is GPU compute for ML inference and training. COMPUT3 targets developers who need rapid prototyping environments with trust guarantees.
 
-4. **Different business model.** Fluence is a token-driven marketplace (FLT) connecting compute suppliers and buyers. Zkloud is a product — a specific, opinionated experience for a specific use case.
+4. **Different business model.** Fluence is a token-driven marketplace (FLT) connecting compute suppliers and buyers. COMPUT3 is a product — a specific, opinionated experience for a specific use case.
 
-**Analogy:** Fluence is to Zkloud what AWS is to Replit. Same underlying category (cloud compute), completely different product, user, and experience.
+**Analogy:** Fluence is to COMPUT3 what AWS is to Replit. Same underlying category (cloud compute), completely different product, user, and experience.
 
 ### Why Not Phala?
 
 Phala is the closest competitor in the confidentiality space, but still different.
 
-Phala focuses on confidential smart contract execution and AI agent hosting using TEEs. They're built for running specific privacy-preserving computations (AI inference, secret management, darkpool DEXes). Zkloud provides general-purpose development environments. Phala requires learning their SDK and programming model. Zkloud is "describe and deploy." Phala doesn't have an agentic interface, and there is no natural language deployment.
+Phala focuses on confidential smart contract execution and AI agent hosting using TEEs. They're built for running specific privacy-preserving computations (AI inference, secret management, darkpool DEXes). COMPUT3 provides general-purpose development environments. Phala requires learning their SDK and programming model. COMPUT3 is "describe and deploy." Phala doesn't have an agentic interface, and there is no natural language deployment.
 
 ### Why Not Akash?
 
-Akash is purely a compute marketplace — cheapest price wins. They provide no confidentiality guarantees. They even sponsored a hackathon by providing free cloud, but without any privacy angle — teams had to trust Akash operators. Zkloud would have solved the exact problem Akash left open.
+Akash is purely a compute marketplace — cheapest price wins. They provide no confidentiality guarantees. They even sponsored a hackathon by providing free cloud, but without any privacy angle — teams had to trust Akash operators. COMPUT3 would have solved the exact problem Akash left open.
 
 ### Our Unique Position
 
-Zkloud occupies the only quadrant that combines agentic deployment with verifiable confidentiality. Every competitor is missing at least one of these two properties. This isn't a "we do it better" argument — it's a "nobody else does this at all" argument.
+COMPUT3 occupies the only quadrant that combines agentic deployment with verifiable confidentiality. Every competitor is missing at least one of these two properties. This isn't a "we do it better" argument — it's a "nobody else does this at all" argument.
 
 ---
 
@@ -638,10 +638,10 @@ The provider network is **not a roadmap item — it ships at the hackathon**. An
 
 - Providers stake USDC in `ProviderRegistry.sol` to join. No central approval needed.
 - The agent automatically routes deployments to the best available provider using on-chain data.
-- Payments flow directly user → provider via x402. zkLOUD never touches payment funds.
+- Payments flow directly user → provider via x402. COMPUT3 never touches payment funds.
 - Providers submit their own EAS attestations — making them individually accountable on-chain.
 - Providers with provably bad behavior (attested action log doesn't match delivered containers) get slashed: their staked USDC is burned or redistributed.
-- zkLOUD takes a 10–15% protocol fee, deducted at the x402 level.
+- COMPUT3 takes a 10–15% protocol fee, deducted at the x402 level.
 
 ### Revenue Math (Single Server)
 
@@ -657,7 +657,7 @@ The provider network is **not a roadmap item — it ships at the hackathon**. An
 
 ### Additional Revenue Streams
 
-**Template Marketplace (Commission):** Developers publish verified deployment templates (e.g., "Production Next.js + Supabase + Redis"). When used, creator gets 80%, Zkloud takes 20%.
+**Template Marketplace (Commission):** Developers publish verified deployment templates (e.g., "Production Next.js + Supabase + Redis"). When used, creator gets 80%, COMPUT3 takes 20%.
 
 **Attestation Premium (Enterprise):** Companies needing compliance-grade audit trails (healthcare, fintech, legal) pay $500–2,000/month for enhanced attestation with regulatory metadata.
 
@@ -698,7 +698,7 @@ The provider network is **not a roadmap item — it ships at the hackathon**. An
 
 | Tactic | Why It Works |
 |--------|-------------|
-| Name it something catchy ("Zkloud") | Memorable, implies invisibility/privacy |
+| Name it something catchy ("COMPUT3") | Memorable, implies invisibility/privacy |
 | Live dashboard on big screen | Visual spectacle, social proof |
 | One-line deploy (`curl ... \| sh`) | Viral "wow" moment |
 | "Verify us" challenge | Dare people to try to see inside — they can't |
@@ -747,7 +747,7 @@ controls who gets to provide the compute."
   No one can stop you. Not us, not anyone."
 
 [1:00 - 2:00] Live Demo: Agentic Deployment
-- Open Zkloud chat UI
+- Open COMPUT3 chat UI
 - Paste a GitHub repo URL
 - Show agent analyzing the repo, calling select_provider()
 - Show the x402 payment header hitting the winning node
@@ -772,7 +772,7 @@ controls who gets to provide the compute."
 
 ### Prize Categories to Target
 
-| Category | Why Zkloud Fits |
+| Category | Why COMPUT3 Fits |
 |----------|-------------------|
 | Best Infrastructure / DevTools | We ARE infrastructure |
 | Best Use of [L2 Chain] | Attestation contract deployed on their chain |
@@ -823,23 +823,23 @@ controls who gets to provide the compute."
 
 ### General
 
-**Q: What is Zkloud?**
-A: Zkloud is a trustless cloud infrastructure platform where developers deploy full-stack environments using natural language, with cryptographic proof that nobody — including us — can access their code or data.
+**Q: What is COMPUT3?**
+A: COMPUT3 is a trustless cloud infrastructure platform where developers deploy full-stack environments using natural language, with cryptographic proof that nobody — including us — can access their code or data.
 
 **Q: How is this different from AWS/GCP?**
-A: AWS asks you to trust them. Zkloud proves trustlessness with on-chain attestations. Also, you deploy by chatting with an AI agent instead of configuring infrastructure manually.
+A: AWS asks you to trust them. COMPUT3 proves trustlessness with on-chain attestations. Also, you deploy by chatting with an AI agent instead of configuring infrastructure manually.
 
 **Q: How is this different from Fluence?**
-A: Fluence is a decentralized AWS — a general-purpose compute marketplace. They don't have confidential compute (it's on their roadmap as R&D). They don't have an agentic interface. They target enterprise AI workloads. Zkloud combines agentic deployment + verifiable privacy, targeting rapid prototyping and hackathons. Think Replit vs AWS — same category, different product.
+A: Fluence is a decentralized AWS — a general-purpose compute marketplace. They don't have confidential compute (it's on their roadmap as R&D). They don't have an agentic interface. They target enterprise AI workloads. COMPUT3 combines agentic deployment + verifiable privacy, targeting rapid prototyping and hackathons. Think Replit vs AWS — same category, different product.
 
 **Q: How is this different from Phala?**
-A: Phala focuses on confidential smart contract execution and AI agent hosting using TEEs. Zkloud provides general-purpose development environments with an AI agent that handles deployment. Phala requires learning their SDK; Zkloud requires describing what you want in English.
+A: Phala focuses on confidential smart contract execution and AI agent hosting using TEEs. COMPUT3 provides general-purpose development environments with an AI agent that handles deployment. Phala requires learning their SDK; COMPUT3 requires describing what you want in English.
 
 **Q: How is this different from Akash?**
-A: Akash is a compute marketplace focused on cheapest price. They provide zero confidentiality guarantees. When Akash sponsored a hackathon with free cloud, teams had no way to verify their IP was safe. Zkloud solves that exact problem.
+A: Akash is a compute marketplace focused on cheapest price. They provide zero confidentiality guarantees. When Akash sponsored a hackathon with free cloud, teams had no way to verify their IP was safe. COMPUT3 solves that exact problem.
 
 **Q: How is this different from Replit Agent?**
-A: Replit Agent is a fantastic agentic coding platform, but it's centralized and trust-based. Replit can see everything you build. Zkloud provides a similar agentic experience but with cryptographic privacy guarantees and on-chain proof.
+A: Replit Agent is a fantastic agentic coding platform, but it's centralized and trust-based. Replit can see everything you build. COMPUT3 provides a similar agentic experience but with cryptographic privacy guarantees and on-chain proof.
 
 ### Technical
 
