@@ -43,6 +43,7 @@ type WorkspaceInfo struct {
 	TeamID      string    `json:"team_id"`
 	SSHHost     string    `json:"ssh_host"`
 	SSHPort     int       `json:"ssh_port"`
+	AppPort     int       `json:"app_port"`  // host port mapped to container port 3000 (for deployed apps)
 	Username    string    `json:"username"`
 	Password    string    `json:"password"`
 	RAMMb       int64     `json:"ram_mb"`
@@ -88,10 +89,14 @@ func (m *Manager) AllocateWorkspace(ctx context.Context, cfg WorkspaceConfig) (*
 	}
 	hostname := fmt.Sprintf("ws-%s", shortID)
 
-	// Pick a free host port; Docker maps it to container port 22.
+	// Pick free host ports: one for SSH (22) and one for the app (3000).
 	sshPort, err := freePort()
 	if err != nil {
 		return nil, fmt.Errorf("find free port: %w", err)
+	}
+	appPort, err := freePort()
+	if err != nil {
+		return nil, fmt.Errorf("find free app port: %w", err)
 	}
 
 	// Inline setup script. The home directory may already contain files from a
@@ -138,6 +143,7 @@ exec /usr/sbin/sshd -D
 	pull.Close()
 
 	sshTCP, _ := network.ParsePort("22/tcp")
+	appTCP, _ := network.ParsePort("3000/tcp")
 	anyAddr := netip.MustParseAddr("0.0.0.0")
 
 	// Build bind list: encrypted home on /vm-storage + lxcfs mounts if available.
@@ -154,6 +160,7 @@ exec /usr/sbin/sshd -D
 			Hostname: hostname, // shows up in shell prompt: hackx@ws-team-xxx
 			ExposedPorts: network.PortSet{
 				sshTCP: struct{}{},
+				appTCP: struct{}{},
 			},
 			Labels: map[string]string{
 				"zkloud.team": cfg.TeamID,
@@ -171,6 +178,9 @@ exec /usr/sbin/sshd -D
 			PortBindings: network.PortMap{
 				sshTCP: []network.PortBinding{
 					{HostIP: anyAddr, HostPort: fmt.Sprintf("%d", sshPort)},
+				},
+				appTCP: []network.PortBinding{
+					{HostIP: anyAddr, HostPort: fmt.Sprintf("%d", appPort)},
 				},
 			},
 			Resources: container.Resources{
@@ -209,6 +219,7 @@ exec /usr/sbin/sshd -D
 		TeamID:      cfg.TeamID,
 		SSHHost:     "localhost",
 		SSHPort:     sshPort,
+		AppPort:     appPort,
 		Username:    username,
 		Password:    password,
 		RAMMb:       cfg.RAMMb,

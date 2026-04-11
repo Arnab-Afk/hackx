@@ -128,6 +128,9 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	r.Get("/workspaces/{containerID}/ssh", srv.sshGateway) // WebSocket SSH terminal
 	r.Delete("/workspaces/{containerID}", srv.destroyWorkspace)
 
+	r.Post("/repos/scan", srv.scanRepo)
+	r.Post("/workspaces/{containerID}/deploy", srv.deployToWorkspace)
+
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -604,6 +607,133 @@ func corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// POST /repos/scan
+// Clones the repo, detects tech stack heuristically (no AI), returns deploy options.
+func (s *Server) scanRepo(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RepoURL string `json:"repo_url"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RepoURL == "" {
+		http.Error(w, "repo_url required", http.StatusBadRequest)
+		return
+	}
+	result, err := scanner.ScanRepo(r.Context(), req.RepoURL)
+	if err != nil {
+		http.Error(w, "scan failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	jsonResponse(w, http.StatusOK, result)
+}
+
+// POST /workspaces/:containerID/deploy
+// Clones the repo into the workspace and starts the chosen component.
+// Body: { "repo_url": "...", "option_index": 0, "env_vars": {"KEY":"val"} }
+func (s *Server) deployToWorkspace(w http.ResponseWriter, r *http.Request) {
+	containerID := chi.URLParam(r, "containerID")
+
+	var req struct {
+		RepoURL     string            `json:"repo_url"`
+		OptionIndex int               `json:"option_index"` // index into scan.Options
+		EnvVars     map[string]string `json:"env_vars"`     // user-supplied env vars
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RepoURL == "" {
+		http.Error(w, "repo_url required", http.StatusBadRequest)
+		return
+	}
+
+	// Re-scan to get the deploy options.
+	scan, err := scanner.ScanRepo(r.Context(), req.RepoURL)
+	if err != nil {
+		http.Error(w, "scan failed: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(scan.Options) == 0 {
+		http.Error(w, "no deployable components detected in repo", http.StatusBadRequest)
+		return
+	}
+	if req.OptionIndex < 0 || req.OptionIndex >= len(scan.Options) {
+		http.Error(w, fmt.Sprintf("option_index out of range (0-%d)", len(scan.Options)-1), http.StatusBadRequest)
+		return
+	}
+	opt := scan.Options[req.OptionIndex]
+
+	// Look up workspace SSH credentials.
+	ws, ok := s.mgr.GetWorkspaceInfo(containerID)
+	if !ok {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	if ws.Status != "ready" {
+		http.Error(w, "workspace not ready yet", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Build the shell script to run inside the workspace.
+	var script strings.Builder
+	script.WriteString("set -e\n")
+	script.WriteString("cd ~\n")
+	script.WriteString("rm -rf app\n")
+	script.WriteString(fmt.Sprintf("git clone --depth 1 %s app\n", req.RepoURL))
+	script.WriteString("cd app\n")
+
+	// Write env vars into .env
+	if len(req.EnvVars) > 0 {
+		script.WriteString("cat > .env << '__ENVEOF__'\n")
+		for k, v := range req.EnvVars {
+			script.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+		}
+		script.WriteString("__ENVEOF__\n")
+	}
+
+	// Install deps
+	if opt.InstallCmd != "" {
+		// Install runtime deps for the language
+		switch opt.Language {
+		case "node":
+			script.WriteString("command -v node >/dev/null || (apt-get update -qq && apt-get install -y -qq nodejs npm)\n")
+		case "python":
+			script.WriteString("command -v pip3 >/dev/null || (apt-get update -qq && apt-get install -y -qq python3 python3-pip)\n")
+			script.WriteString("ln -sf /usr/bin/pip3 /usr/local/bin/pip 2>/dev/null || true\n")
+		case "go":
+			script.WriteString("command -v go >/dev/null || (apt-get update -qq && apt-get install -y -qq golang)\n")
+		}
+		script.WriteString(opt.InstallCmd + "\n")
+	}
+
+	// Build step
+	if opt.BuildCmd != "" {
+		script.WriteString(opt.BuildCmd + "\n")
+	}
+
+	// Start app in background, log to ~/app.log, write PID to ~/app.pid
+	script.WriteString(fmt.Sprintf(
+		"nohup %s > ~/app.log 2>&1 & echo $! > ~/app.pid\n",
+		opt.StartCmd,
+	))
+	script.WriteString("sleep 2 && echo 'started' && cat ~/app.pid\n")
+
+	log.Printf("[deploy] workspace=%s repo=%s framework=%s", containerID, req.RepoURL, opt.Framework)
+
+	// Run via SSH.
+	output, err := runSSHScript(ws.SSHHost, ws.SSHPort, ws.Username, ws.Password, script.String())
+	if err != nil {
+		log.Printf("[deploy] ssh error: %v\noutput: %s", err, output)
+		http.Error(w, "deploy failed: "+err.Error()+"\n"+output, http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[deploy] done — workspace=%s output: %s", containerID, output)
+
+	jsonResponse(w, http.StatusOK, map[string]any{
+		"container_id": containerID,
+		"framework":    opt.Framework,
+		"type":         opt.Type,
+		"port":         opt.Port,
+		"app_url":      fmt.Sprintf("http://%s:%d", ws.SSHHost, ws.AppPort),
+		"log_output":   output,
 	})
 }
 
