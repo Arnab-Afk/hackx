@@ -15,6 +15,7 @@ type DeployOption struct {
 	Type       string `json:"type"`        // "frontend" | "backend"
 	Framework  string `json:"framework"`   // "nextjs", "react", "express", "fastapi", "go", ...
 	Language   string `json:"language"`    // "node", "python", "go", "static"
+	SubDir     string `json:"sub_dir"`     // relative path from repo root, empty means root
 	InstallCmd string `json:"install_cmd"` // e.g. "npm install"
 	BuildCmd   string `json:"build_cmd"`   // e.g. "npm run build" (empty if none)
 	StartCmd   string `json:"start_cmd"`   // e.g. "npm start"
@@ -66,12 +67,41 @@ func ScanRepo(ctx context.Context, repoURL string, token ...string) (*RepoScan, 
 	return scan, nil
 }
 
-// detectOptions inspects the repo directory and returns all deployable components.
+// detectOptions inspects the repo root and one level of subdirectories,
+// returning all deployable components found anywhere in the repo.
 func detectOptions(root string) []DeployOption {
 	var opts []DeployOption
 
+	// Check root first
+	opts = append(opts, detectOptionsInDir(root, "")...)
+
+	// Check immediate subdirectories (monorepo support)
+	entries, err := os.ReadDir(root)
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") || e.Name() == "node_modules" {
+				continue
+			}
+			sub := e.Name()
+			subOpts := detectOptionsInDir(root, sub)
+			opts = append(opts, subOpts...)
+		}
+	}
+
+	return opts
+}
+
+// detectOptionsInDir inspects a single directory (root/subdir) for deployable components.
+// subdir is a relative path from root (empty string means root itself).
+func detectOptionsInDir(root, subdir string) []DeployOption {
+	var opts []DeployOption
+	dir := root
+	if subdir != "" {
+		dir = root + "/" + subdir
+	}
+
 	// ── Node.js ───────────────────────────────────────────────────────────────
-	if pkg := readJSON(root + "/package.json"); pkg != nil {
+	if pkg := readJSON(dir + "/package.json"); pkg != nil {
 		deps := mergeDeps(pkg)
 		scripts, _ := pkg["scripts"].(map[string]any)
 
@@ -87,7 +117,7 @@ func detectOptions(root string) []DeployOption {
 				startCmd = "npm start"
 			}
 			opts = append(opts, DeployOption{
-				Type: "frontend", Framework: "nextjs", Language: "node",
+				Type: "frontend", Framework: "nextjs", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", BuildCmd: buildCmd, StartCmd: startCmd, Port: 3000,
 			})
 		case hasDep(deps, "@sveltejs/kit"), hasDep(deps, "svelte"):
@@ -95,7 +125,7 @@ func detectOptions(root string) []DeployOption {
 				startCmd = "node build"
 			}
 			opts = append(opts, DeployOption{
-				Type: "frontend", Framework: "sveltekit", Language: "node",
+				Type: "frontend", Framework: "sveltekit", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", BuildCmd: buildCmd, StartCmd: startCmd, Port: 3000,
 			})
 		case hasDep(deps, "nuxt"):
@@ -103,7 +133,7 @@ func detectOptions(root string) []DeployOption {
 				startCmd = "node .output/server/index.mjs"
 			}
 			opts = append(opts, DeployOption{
-				Type: "frontend", Framework: "nuxt", Language: "node",
+				Type: "frontend", Framework: "nuxt", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", BuildCmd: buildCmd, StartCmd: startCmd, Port: 3000,
 			})
 		case hasDep(deps, "react"):
@@ -111,13 +141,13 @@ func detectOptions(root string) []DeployOption {
 				buildCmd = "npm run build"
 			}
 			opts = append(opts, DeployOption{
-				Type: "frontend", Framework: "react", Language: "node",
+				Type: "frontend", Framework: "react", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", BuildCmd: buildCmd,
 				StartCmd: "npx serve -s build -l 3000", Port: 3000,
 			})
 		case hasDep(deps, "vue"):
 			opts = append(opts, DeployOption{
-				Type: "frontend", Framework: "vue", Language: "node",
+				Type: "frontend", Framework: "vue", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", BuildCmd: buildCmd,
 				StartCmd: "npx serve -s dist -l 3000", Port: 3000,
 			})
@@ -130,7 +160,7 @@ func detectOptions(root string) []DeployOption {
 				startCmd = "node dist/main"
 			}
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "nestjs", Language: "node",
+				Type: "backend", Framework: "nestjs", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", BuildCmd: buildCmd, StartCmd: startCmd, Port: 3000,
 			})
 		case hasDep(deps, "express"):
@@ -138,7 +168,7 @@ func detectOptions(root string) []DeployOption {
 				startCmd = "node index.js"
 			}
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "express", Language: "node",
+				Type: "backend", Framework: "express", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", StartCmd: startCmd, Port: 3000,
 			})
 		case hasDep(deps, "fastify"):
@@ -146,37 +176,37 @@ func detectOptions(root string) []DeployOption {
 				startCmd = "node server.js"
 			}
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "fastify", Language: "node",
+				Type: "backend", Framework: "fastify", Language: "node", SubDir: subdir,
 				InstallCmd: "npm install", StartCmd: startCmd, Port: 3000,
 			})
 		}
 	}
 
 	// ── Python ────────────────────────────────────────────────────────────────
-	if reqs := readFile(root + "/requirements.txt"); reqs != "" {
+	if reqs := readFile(dir + "/requirements.txt"); reqs != "" {
 		lower := strings.ToLower(reqs)
 		switch {
 		case strings.Contains(lower, "fastapi"):
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "fastapi", Language: "python",
+				Type: "backend", Framework: "fastapi", Language: "python", SubDir: subdir,
 				InstallCmd: "pip install -r requirements.txt",
 				StartCmd:   "uvicorn main:app --host 0.0.0.0 --port 8000", Port: 8000,
 			})
 		case strings.Contains(lower, "flask"):
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "flask", Language: "python",
+				Type: "backend", Framework: "flask", Language: "python", SubDir: subdir,
 				InstallCmd: "pip install -r requirements.txt",
 				StartCmd:   "python app.py", Port: 5000,
 			})
 		case strings.Contains(lower, "django"):
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "django", Language: "python",
+				Type: "backend", Framework: "django", Language: "python", SubDir: subdir,
 				InstallCmd: "pip install -r requirements.txt",
 				StartCmd:   "python manage.py runserver 0.0.0.0:8000", Port: 8000,
 			})
 		default:
 			opts = append(opts, DeployOption{
-				Type: "backend", Framework: "python", Language: "python",
+				Type: "backend", Framework: "python", Language: "python", SubDir: subdir,
 				InstallCmd: "pip install -r requirements.txt",
 				StartCmd:   "python main.py", Port: 8000,
 			})
@@ -184,9 +214,9 @@ func detectOptions(root string) []DeployOption {
 	}
 
 	// ── Go ────────────────────────────────────────────────────────────────────
-	if readFile(root+"/go.mod") != "" {
+	if readFile(dir+"/go.mod") != "" {
 		opts = append(opts, DeployOption{
-			Type: "backend", Framework: "go", Language: "go",
+			Type: "backend", Framework: "go", Language: "go", SubDir: subdir,
 			InstallCmd: "go mod download",
 			BuildCmd:   "go build -o app .",
 			StartCmd:   "./app", Port: 8080,
@@ -194,9 +224,9 @@ func detectOptions(root string) []DeployOption {
 	}
 
 	// ── Static HTML ───────────────────────────────────────────────────────────
-	if _, err := os.Stat(root + "/index.html"); err == nil {
+	if _, err := os.Stat(dir + "/index.html"); err == nil {
 		opts = append(opts, DeployOption{
-			Type: "frontend", Framework: "static", Language: "static",
+			Type: "frontend", Framework: "static", Language: "static", SubDir: subdir,
 			StartCmd: "npx serve -l 3000 .", Port: 3000,
 		})
 	}
