@@ -17,6 +17,10 @@ type Config struct {
 	ProviderRegistryAddress  string
 	EASSchemaUID             string
 	AgentWalletPrivateKey    string
+
+	// Vault — used to derive per-user LUKS keys
+	// Each user key = keccak256(VaultMasterSecret + attestation_uid)
+	VaultMasterSecret string
 }
 
 func Load() *Config {
@@ -32,6 +36,7 @@ func Load() *Config {
 		ProviderRegistryAddress: getEnv("PROVIDER_REGISTRY_ADDRESS", "0x889a1EB1489626F39C84b880a67e5eeAE3dD6884"),
 		EASSchemaUID:            getEnv("EAS_SCHEMA_UID", "0x001219cb6b1ad28ce53a643f532872015acab85429133286b9e2c96e910945f0"),
 		AgentWalletPrivateKey:   getEnv("AGENT_WALLET_PRIVATE_KEY", ""),
+		VaultMasterSecret:       getEnv("VAULT_MASTER_SECRET", ""),
 	}
 }
 
