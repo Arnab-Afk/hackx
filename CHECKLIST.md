@@ -32,7 +32,7 @@ _Chain: Base Sepolia testnet_
 
 - [DONE] **1.1** Initialize Hardhat/Foundry project in `/contracts`
 - [DONE] **1.2** Write `ProviderRegistry.sol` — providers register with: `endpoint`, `pricePerHour`, `stakedAmount`, `slashCount`, `jobsCompleted`, `active`; include `stake()`, `unstake()`, `slash(address provider, bytes32 evidence)` functions; `select_provider()` filters by `active == true && stakedAmount >= MIN_STAKE`
-- [DONE] **1.3** Write `DeploymentEscrow.sol` — fallback payment escrow (backup if x402 fails)
+- [DONE] **1.3** Write `DeploymentEscrow.sol` — streaming 20%/80% escrow: startSession, releasePayment, submitProof, stopSession, slashProvider; interfaces with ProviderRegistry for on-chain slashing
 - [DONE] **1.4** Register zkLOUD EAS schema on Base Sepolia (`teamId, actionMerkleRoot, containerStateHash, sessionId, ipfsCid`)
 - [DONE] **1.5** Deploy contracts to Base Sepolia + save addresses to `/contracts/deployments.json`
 - [DONE] **1.6** Generate TypeScript ABIs for frontend consumption

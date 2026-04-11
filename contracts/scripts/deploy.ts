@@ -22,8 +22,8 @@ async function main() {
   // ─── Deploy DeploymentEscrow ───────────────────────────────────────────────
   console.log("\nDeploying DeploymentEscrow...");
   const DeploymentEscrow = await ethers.getContractFactory("DeploymentEscrow");
-  // Release authority = deployer initially (update to backend wallet later)
-  const escrow = await DeploymentEscrow.deploy(deployer.address, deployer.address);
+  // Args: initialOwner, releaseAuthority, registry address
+  const escrow = await DeploymentEscrow.deploy(deployer.address, deployer.address, registryAddress);
   await escrow.waitForDeployment();
   const escrowAddress = await escrow.getAddress();
   console.log("DeploymentEscrow deployed to:", escrowAddress);
@@ -69,7 +69,7 @@ async function main() {
     try {
       await run("verify:verify", {
         address: escrowAddress,
-        constructorArguments: [deployer.address, deployer.address],
+        constructorArguments: [deployer.address, deployer.address, registryAddress],
       });
     } catch (e: any) {
       console.warn("DeploymentEscrow verification failed:", e.message);
