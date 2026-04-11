@@ -28,19 +28,22 @@
 
 Zkloud is a trustless, AI-powered cloud infrastructure platform that lets developers deploy full-stack environments using natural language — with cryptographic, on-chain proof that nobody (including us) can access their code or data.
 
-We combine three things that no existing platform offers together:
+We combine four things that no existing platform offers together:
 
 - **Agentic Deployment:** Describe what you need in plain English; an AI agent provisions your entire stack in under 60 seconds.
 - **Confidential Compute:** Every container is encrypted at rest with a key only the user holds. Not even the host operator can see inside.
 - **On-Chain Attestation:** Every action the agent takes and every container lifecycle event is hashed and recorded on-chain, creating a tamper-proof audit trail anyone can verify.
+- **Decentralized Compute Network:** Any server owner can register as a compute provider by staking USDC on-chain. The agent automatically selects the best available provider and pays them directly via x402 (HTTP-native micropayments). No central gatekeeper controls who can provide compute.
 
-### Hardware Available
+### Network at Launch
 
-| Resource | Specification |
-|----------|---------------|
-| RAM | 256 GB |
-| Storage | 10 TB SSD |
-| Estimated Containers | 50–100 simultaneous |
+| Node | Operator | RAM | Storage |
+|------|----------|-----|--------|
+| Provider #1 | zkLOUD core (host server) | 256 GB | 10 TB SSD |
+| Provider #2 | Team node | 32 GB+ | 1 TB+ |
+| Provider #3 | Team node | 32 GB+ | 1 TB+ |
+
+> Any server owner can join with `setup-provider.sh`. The network is permissionless — staking USDC is all that's required.
 
 ---
 
@@ -98,8 +101,11 @@ Every action is logged and attested on-chain. This includes container lifecycle 
 │   LLM (Claude/OpenAI) with Function Calling          │
 │   ┌─────────────────────────────────────────┐       │
 │   │  Tools:                                  │       │
+│   │  - analyze_repo(github_url)              │       │
+│   │  - select_provider()          ← NEW      │       │
+│   │  - generate_deployment_plan()            │       │
 │   │  - create_container(image, resources)    │       │
-│   │  - install_package(container, packages)  │       │
+│   │  - install_packages(container, pkgs)     │       │
 │   │  - configure_network(containers, ports)  │       │
 │   │  - attach_storage(container, size)       │       │
 │   │  - setup_ide(container, type)            │       │
@@ -111,29 +117,54 @@ Every action is logged and attested on-chain. This includes container lifecycle 
                        │
                        ▼
 ┌─────────────────────────────────────────────────────┐
-│              ORCHESTRATION LAYER                     │
+│            PROVIDER SELECTION LAYER        ← NEW    │
 │                                                     │
-│   Container Manager (Go/Python API)                  │
-│   - Docker/LXD runtime                               │
-│   - LUKS volume encryption per container             │
+│   ProviderRegistry.sol (on-chain)                    │
+│   - Providers register: endpoint + price/hr + stake  │
+│   - Agent queries: active && stake >= MIN_STAKE      │
+│   - Ranked: cheapest price, then most jobs done      │
+│   - Stake/slash: providers post USDC bond;           │
+│     provably bad actors lose their stake             │
+│                                                     │
+│   select_provider() → winning node's HTTP endpoint  │
+│                                                     │
+│   x402 Payment (HTTP-native, per request)            │
+│   - Agent attaches X-PAYMENT header to request       │
+│   - Provider node verifies payment before executing  │
+│   - No central payment processor                    │
+└──────────────────────┬──────────────────────────────┘
+                       │  (routed to winning provider)
+                       ▼
+┌─────────────────────────────────────────────────────┐
+│         PROVIDER NODE (runs on each machine)         │
+│                                                     │
+│   Container Manager (Go API)                         │
+│   - Verifies X-PAYMENT header before provisioning   │
+│   - Docker runtime + LUKS volume encryption          │
 │   - gVisor/Firecracker sandboxing                    │
 │   - Network isolation (per-team VLAN)                │
 │   - Resource quota enforcement                       │
 │                                                     │
-│   256 GB RAM / 10 TB SSD Host Server                 │
+│   Provider #1: 256 GB RAM / 10 TB SSD                │
+│   Provider #2: Team machine                          │
+│   Provider #3: Team machine                          │
+│   Provider #N: Anyone who runs setup-provider.sh     │
+│                                                     │
+│   After session: node submits EAS attestation        │
+│   signed by its own wallet → individual accountability│
 └──────────────────────┬──────────────────────────────┘
                        │
                        ▼
 ┌─────────────────────────────────────────────────────┐
 │              ATTESTATION LAYER                       │
 │                                                     │
-│   Smart Contract (Solidity)                          │
-│   - Deployed on Base/Arbitrum (low gas)              │
-│   - Logs: container hashes, agent action logs,       │
-│     lifecycle events, encryption proofs              │
-│   - Queryable by anyone via block explorer           │
-│                                                     │
-│   OR: Ethereum Attestation Service (EAS)             │
+│   Ethereum Attestation Service (EAS) on Base         │
+│   - Schema: teamId, actionMerkleRoot,                │
+│     containerStateHash, sessionId, ipfsCid           │
+│   - Submitted by: the provider node's wallet         │
+│     (not zkLOUD — provider is individually liable)   │
+│   - Action log stored on IPFS, root on-chain         │
+│   - Queryable by anyone via BaseScan / EAS explorer  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -433,7 +464,9 @@ string actionLogIPFS
 |-----------|-----------|-----------|
 | Chain | Base (Ethereum L2) | Low gas, fast finality, EVM |
 | Contract Language | Solidity | Standard, auditable |
-| Attestation | Custom contract or EAS | Flexibility |
+| Provider Registry | `ProviderRegistry.sol` | On-chain marketplace: register, stake, slash |
+| Payment | x402 (HTTP `X-PAYMENT` header) | Native per-request micropayments, no intermediary |
+| Attestation | EAS (Ethereum Attestation Service) | Standardized schema, already on Base |
 | Action Log Storage | IPFS (via Pinata/web3.storage) | Decentralized, permanent |
 
 ### Frontend
@@ -530,7 +563,7 @@ STEP 7: TEARDOWN
 | **Phala Network** | SDK / CLI | TEE-based | Yes (compute proofs) | Privacy-focused apps |
 | **Replit Agent** | Conversational | Trust-based | None | Beginners |
 | **GitHub Copilot Workspace** | Conversational | Trust-based | None | GitHub users |
-| **Zkloud (Us)** | Conversational | Encryption + proofs | Full action log | Hackathon teams, prototypers |
+| **Zkloud (Us)** | Conversational | Encryption + proofs | Full action log (per-provider) | Hackathon teams, prototypers |
 
 ### Why Not Fluence?
 
@@ -599,13 +632,16 @@ Developers sign up individually and pay for compute.
 | GB storage per month | $0.10 |
 | On-chain attestation | $0.05 (includes gas) |
 
-### Phase 3: Decentralized Network — Months 12–24
+### Phase 3: Decentralized Network — Live at Launch
 
-Allow other server owners to join the network and contribute hardware.
+The provider network is **not a roadmap item — it ships at the hackathon**. Anyone can join with a single script (`setup-provider.sh`). The architecture from day one is:
 
-- Zkloud takes a 10–15% protocol fee on every transaction.
-- Compute providers stake tokens to participate.
-- Quality is enforced via attestation — providers with mismatched attestations get slashed.
+- Providers stake USDC in `ProviderRegistry.sol` to join. No central approval needed.
+- The agent automatically routes deployments to the best available provider using on-chain data.
+- Payments flow directly user → provider via x402. zkLOUD never touches payment funds.
+- Providers submit their own EAS attestations — making them individually accountable on-chain.
+- Providers with provably bad behavior (attested action log doesn't match delivered containers) get slashed: their staked USDC is burned or redistributed.
+- zkLOUD takes a 10–15% protocol fee, deducted at the x402 level.
 
 ### Revenue Math (Single Server)
 
@@ -679,13 +715,15 @@ Allow other server owners to join the network and contribute hardware.
 **Priority 1 — Must Have (Day 1):**
 - Container orchestration API (create, start, stop, destroy)
 - LUKS encryption per container with user-held keys
-- Smart contract for attestation (deploy on Base Sepolia testnet)
-- Basic agent with 3–4 tools (create_container, install_packages, configure_network)
+- `ProviderRegistry.sol` deployed on Base Sepolia — register, stake, slash
+- Basic agent with core tools: `analyze_repo`, `select_provider`, `create_container`, `install_packages`, `configure_network`
+- x402 payment verification middleware on provider nodes
+- Register all 3 provider nodes in the registry (your server + 2 team machines)
 
 **Priority 2 — Should Have (Day 2, first half):**
 - Web chat UI for agent interaction
-- Live dashboard showing containers and attestation tx links
-- Action log → merkle root → on-chain attestation pipeline
+- Live dashboard: active providers list (from registry), running containers, attestation tx links
+- Action log → merkle root → EAS attestation pipeline (submitted by provider node's wallet)
 - Web IDE (code-server) auto-provisioning
 
 **Priority 3 — Nice to Have (Day 2, second half):**
@@ -699,29 +737,37 @@ Allow other server owners to join the network and contribute hardware.
 ```
 [0:00 - 0:30] Problem Statement
 "Every cloud provider asks you to trust them. We built 
-the first one that proves you can't see our users' data."
+the first one that proves you can't — and where nobody 
+controls who gets to provide the compute."
 
-[0:30 - 1:30] Live Demo: Agentic Deployment
+[0:30 - 1:00] Show the Provider Network
+- Open the dashboard → show 3 registered providers
+  (all visible on BaseScan in ProviderRegistry.sol)
+- "Anyone can join. You stake USDC, you're in the network.
+  No one can stop you. Not us, not anyone."
+
+[1:00 - 2:00] Live Demo: Agentic Deployment
 - Open Zkloud chat UI
-- Type: "I need a React app with Express and MongoDB"
-- Show agent provisioning in real-time
-- Show attestation tx on BaseScan
+- Paste a GitHub repo URL
+- Show agent analyzing the repo, calling select_provider()
+- Show the x402 payment header hitting the winning node
+- Containers come up, access creds returned
 
-[1:30 - 2:30] Trust Verification
-- Show the action log (every tool call)
-- Recompute merkle root live
-- Match against on-chain value
-- "If we had injected anything, the hash wouldn't match"
+[2:00 - 2:45] Trust Verification
+- Show the EAS attestation — signed by the PROVIDER's wallet
+- "This wasn't submitted by us. The provider is accountable."
+- Show the action log, recompute merkle root live
+- "If the provider lied about what ran, the hash fails — and they lose their stake"
 
-[2:30 - 3:15] Architecture & Differentiators
-- Quick architecture slide
-- Competitive positioning vs Fluence/Akash/Phala
-- "Nobody combines agentic UX + verifiable privacy"
+[2:45 - 3:30] Architecture & Differentiators
+- Quick architecture slide (4-layer diagram)
+- "Agentic UX + confidential compute + per-provider attestation + open network"
+- "No competitor has all four."
 
-[3:15 - 4:00] Business Model & Vision
-- Hackathon-as-a-Service → Self-serve → Decentralized network
-- "We're running THIS hackathon's infrastructure right now"
-- Revenue math: break-even month 1
+[3:30 - 4:00] Business Model & Vision
+- Protocol fee via x402 (10–15%, no smart contract needed)
+- "We're running THIS hackathon's infrastructure on our own network right now"
+- Roadmap: permissionless growth — more providers = more capacity
 ```
 
 ### Prize Categories to Target
@@ -742,10 +788,14 @@ the first one that proves you can't see our users' data."
 
 - [ ] Container orchestration API
 - [ ] LUKS encryption integration
-- [ ] Smart contract deployment (Base Sepolia)
-- [ ] AI agent with function calling (5 tools)
-- [ ] Web chat UI
-- [ ] Action log → attestation pipeline
+- [ ] `ProviderRegistry.sol` — deploy on Base Sepolia (register, stake, slash)
+- [ ] `setup-provider.sh` — onboards any machine in ~5 minutes
+- [ ] Register 3 provider nodes (your server + 2 team machines)
+- [ ] AI agent with function calling: `analyze_repo`, `select_provider`, `create_container`, `install_packages`, `configure_network`, `generate_keypair`
+- [ ] x402 payment verification middleware on provider nodes
+- [ ] Action log → EAS attestation pipeline (submitted by provider wallet)
+- [ ] Web chat UI with live deployment stream
+- [ ] Dashboard: provider list + container status + attestation links
 - [ ] Landing page
 
 ### Medium Term (Post-Hackathon — Months 1–3)
@@ -760,8 +810,7 @@ the first one that proves you can't see our users' data."
 
 ### Long Term (Months 3–12)
 
-- [ ] Multi-node support (other servers join network)
-- [ ] GPU container support
+- [ ] GPU container support (providers with GPU hardware register separately in registry)
 - [ ] Token launch (if pursuing decentralization)
 - [ ] Enterprise whitelabel solution
 - [ ] SOC2 / compliance certifications
@@ -803,8 +852,8 @@ A: Every action the agent takes is logged in a signed action log. The merkle roo
 **Q: What blockchain do you use?**
 A: We deploy on Base (Ethereum L2) for low gas costs and fast finality. Attestations cost fractions of a cent. We can also support Arbitrum, Optimism, or any EVM chain.
 
-**Q: What happens if your server goes down?**
-A: Your data is encrypted on disk — it persists across reboots. Attestations are on-chain and permanent. In the decentralized version (roadmap), your containers can be migrated to other providers without losing the trust guarantees.
+**Q: What happens if a provider node goes down?**
+A: Your data is encrypted on disk on that node — it persists across reboots. Attestations are on-chain and permanent. The provider registry shows each node's status; the agent can re-deploy to a different available provider. Because the decentralized network is live from day one (not a roadmap item), there is no single point of failure.
 
 **Q: Can I use my own Docker images?**
 A: Yes. The agent can deploy any public Docker image. For custom images, you push to a registry and the agent pulls from there.
@@ -812,7 +861,7 @@ A: Yes. The agent can deploy any public Docker image. For custom images, you pus
 ### Business
 
 **Q: How do you make money?**
-A: Three phases. Phase 1: sell to hackathon organizers ($2K–$10K per event). Phase 2: self-serve developer platform (freemium + usage-based). Phase 3: protocol fees on a decentralized compute network.
+A: The protocol fee (10–15%) is deducted automatically via x402 on every compute payment — no smart contract complexity needed. Phase 1: sell to hackathon organizers ($2K–$10K per event) and operate Provider #1 as the primary node. Phase 2: self-serve developer platform (freemium + usage-based) as the network grows with more providers. The decentralized provider network is live at launch — it's not a Phase 3 roadmap item.
 
 **Q: What's your unfair advantage?**
 A: We're the only platform combining agentic deployment with verifiable confidentiality. Competitors have one or the other — never both. Our moat deepens with data: the more deployments the agent handles, the smarter it gets at provisioning.
