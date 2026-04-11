@@ -19,6 +19,8 @@ services:
       context: ./backend
       network: host
     network_mode: host
+    env_file:
+      - .env
     environment:
       PORT: "8081"
       # With host networking, postgres is reachable on localhost
