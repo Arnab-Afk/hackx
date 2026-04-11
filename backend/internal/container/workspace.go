@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/netip"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -21,8 +22,8 @@ import (
 
 const workspaceImage = "ubuntu:22.04"
 
-// hostPorts lists the backend services on the host that workspace containers
-// must NOT be able to reach (backend API, proxy, postgres).
+// hostServicePorts lists the backend services that workspace containers must
+// not be able to reach (backend API, proxy, postgres).
 var hostServicePorts = []string{"8081", "8082", "5432", "5433"}
 
 // firewallOnce ensures iptables rules are installed exactly once per process.
@@ -45,34 +46,53 @@ type WorkspaceInfo struct {
 	Password    string    `json:"password"`
 	RAMMb       int64     `json:"ram_mb"`
 	CPUCores    float64   `json:"cpu_cores"`
-	Status      string    `json:"status"` // "provisioning" | "ready" | "failed"
+	StoragePath string    `json:"storage_path"` // host path backing /home/hackx
+	Status      string    `json:"status"`      // "provisioning" | "ready" | "failed"
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// AllocateWorkspace creates an Ubuntu container with bridge networking (for
-// internet access via NAT), SSH + sudo, resource limits, and waits until SSH
-// is ready. The container is isolated from host services via iptables.
+// AllocateWorkspace creates an Ubuntu container that feels like an individual
+// VM: private network namespace, private PID namespace, persistent home
+// directory, unique hostname, and (if lxcfs is running on the host) correct
+// resource readings from free/nproc/top.
 func (m *Manager) AllocateWorkspace(ctx context.Context, cfg WorkspaceConfig) (*WorkspaceInfo, error) {
-	// Block docker bridge from reaching host backend services (runs once).
+	// Block the docker0 bridge from reaching host backend services (runs once).
 	installFirewallRules()
 
 	password := randomHex(16)
 	username := "hackx"
 
-	// Pick a free host port; Docker will map it to container port 22.
+	// Bind-mount a directory on the host drive into /home/hackx so files
+	// survive container restarts and are stored on the designated storage drive.
+	storageDir := fmt.Sprintf("/vm-storage/workspaces/%s", cfg.TeamID)
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create workspace storage dir: %w", err)
+	}
+
+	// Short, human-readable hostname shown in the shell prompt.
+	shortID := cfg.TeamID
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+	hostname := fmt.Sprintf("ws-%s", shortID)
+
+	// Pick a free host port; Docker maps it to container port 22.
 	sshPort, err := freePort()
 	if err != nil {
 		return nil, fmt.Errorf("find free port: %w", err)
 	}
 
-	// Inline setup script. sshd listens on port 22 (default) — Docker handles
-	// the host:sshPort → container:22 mapping via PortBindings.
+	// Inline setup script. The home directory may already contain files from a
+	// previous session (the volume persists); chown ensures correct ownership
+	// even if the container UID changes between recreations.
 	setup := fmt.Sprintf(`
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq openssh-server sudo curl wget git vim nano unzip build-essential
-useradd -m -s /bin/bash %s
-echo '%s:%s' | chpasswd
+useradd -M -s /bin/bash %s
+# Populate home from skel on first boot; chown always to fix ownership.
+[ -f /home/%s/.bashrc ] || cp -r /etc/skel/. /home/%s/
+chown -R %s:%s /home/%s
 usermod -aG sudo %s
 echo '%s ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 mkdir -p /run/sshd
@@ -81,17 +101,19 @@ echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
 ssh-keygen -A -q
 cat > /etc/motd << 'EOF'
 
-  zkLOUD Workspace
-  ----------------
-  RAM:  %d MB (enforced via cgroups)
-  CPUs: %.1f cores (enforced via cgroups)
-
-  Note: system tools (btop/free/nproc) show host totals.
-  Your actual limits are enforced by the kernel.
+  zkLOUD Workspace — %s
+  --------------------------------
+  RAM:  %d MB
+  CPUs: %.1f cores
 
 EOF
 exec /usr/sbin/sshd -D
-`, username, username, password, username, username, cfg.RAMMb, cfg.CPUCores)
+`, username,
+		username, username,
+		username, username, username,
+		username,
+		username,
+		hostname, cfg.RAMMb, cfg.CPUCores)
 
 	// Pull image (no-op if already cached).
 	pull, err := m.client.ImagePull(ctx, workspaceImage, dockerclient.ImagePullOptions{})
@@ -101,14 +123,21 @@ exec /usr/sbin/sshd -D
 	io.Copy(io.Discard, pull)
 	pull.Close()
 
-	// Bind host:sshPort → container:22.
 	sshTCP, _ := network.ParsePort("22/tcp")
+	anyAddr := netip.MustParseAddr("0.0.0.0")
+
+	// Build bind list: persistent home on /vm-storage + lxcfs mounts if available.
+	binds := []string{
+		fmt.Sprintf("%s:/home/%s", storageDir, username),
+	}
+	binds = append(binds, lxcfsBinds()...)
 
 	resp, err := m.client.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
 		Name: fmt.Sprintf("zkloud-ws-%s-%d", cfg.TeamID, time.Now().UnixNano()),
 		Config: &container.Config{
-			Image: workspaceImage,
-			Cmd:   []string{"/bin/bash", "-c", setup},
+			Image:    workspaceImage,
+			Cmd:      []string{"/bin/bash", "-c", setup},
+			Hostname: hostname, // shows up in shell prompt: hackx@ws-team-xxx
 			ExposedPorts: network.PortSet{
 				sshTCP: struct{}{},
 			},
@@ -118,9 +147,8 @@ exec /usr/sbin/sshd -D
 			},
 		},
 		HostConfig: &container.HostConfig{
-			// Bridge networking: container gets its own network namespace.
-			// localhost inside the container is the container — not the host.
-			// Internet access works via Docker NAT (no need for host networking).
+			// Bridge networking: own network namespace (localhost = this container),
+			// own PID namespace (can't see host or other container processes).
 			NetworkMode: "bridge",
 			DNS: []netip.Addr{
 				netip.MustParseAddr("8.8.8.8"),
@@ -128,28 +156,30 @@ exec /usr/sbin/sshd -D
 			},
 			PortBindings: network.PortMap{
 				sshTCP: []network.PortBinding{
-					{HostIP: netip.MustParseAddr("0.0.0.0"), HostPort: fmt.Sprintf("%d", sshPort)},
+					{HostIP: anyAddr, HostPort: fmt.Sprintf("%d", sshPort)},
 				},
 			},
 			Resources: container.Resources{
 				Memory:   cfg.RAMMb * 1024 * 1024,
 				NanoCPUs: int64(cfg.CPUCores * 1e9),
 			},
-			// Drop capabilities that could be used to break out of the container
-			// or affect the host kernel/network. Keep what's needed for SSH + sudo.
+			// Drop capabilities that could affect the host kernel or escape isolation.
 			CapDrop: []string{
-				"NET_ADMIN",   // cannot modify host iptables/routing from inside
-				"SYS_ADMIN",   // cannot mount filesystems, change namespaces, etc.
-				"SYS_PTRACE",  // cannot trace/inspect other processes
-				"SYS_MODULE",  // cannot load/unload kernel modules
-				"SYS_RAWIO",   // cannot perform raw I/O (disk access)
-				"SYS_BOOT",    // cannot reboot/kexec the host
-				"NET_RAW",     // cannot craft raw packets (prevents some network attacks)
-				"SYS_PACCT",   // process accounting
+				"NET_ADMIN",  // cannot modify iptables/routing
+				"SYS_ADMIN",  // cannot mount filesystems or change namespaces
+				"SYS_PTRACE", // cannot trace/inspect other processes
+				"SYS_MODULE", // cannot load/unload kernel modules
+				"SYS_RAWIO",  // cannot perform raw I/O
+				"SYS_BOOT",   // cannot reboot/kexec
+				"NET_RAW",    // cannot craft raw packets
 			},
-			// No docker.sock mount — prevents container from controlling the Docker
-			// daemon and escaping to the host.
-			Binds: []string{},
+			// /tmp gets its own tmpfs so workspace users can't fill the host disk.
+			Tmpfs: map[string]string{
+				"/tmp": "rw,nosuid,nodev,size=512m",
+			},
+			ShmSize: 64 * 1024 * 1024, // 64 MB /dev/shm
+			// No docker.sock — prevents escaping to the Docker daemon.
+			Binds: binds,
 		},
 	})
 	if err != nil {
@@ -169,11 +199,11 @@ exec /usr/sbin/sshd -D
 		Password:    password,
 		RAMMb:       cfg.RAMMb,
 		CPUCores:    cfg.CPUCores,
+		StoragePath: storageDir,
 		Status:      "provisioning",
 		CreatedAt:   time.Now().UTC(),
 	}
 
-	// Poll for SSH readiness in the background — client can check status via GET /workspaces/:id/status
 	go func() {
 		if waitForSSH(fmt.Sprintf("localhost:%d", sshPort), 5*time.Minute) {
 			ws.Status = "ready"
@@ -185,20 +215,39 @@ exec /usr/sbin/sshd -D
 	return ws, nil
 }
 
+// lxcfsBinds returns bind-mount strings for lxcfs virtual /proc files if
+// lxcfs is running on the host. When mounted, tools like free/top/nproc show
+// the container's cgroup limits instead of the host's totals.
+// Install on the host: apt-get install lxcfs && systemctl enable --now lxcfs
+func lxcfsBinds() []string {
+	const root = "/var/lib/lxcfs"
+	if _, err := os.Stat(root + "/proc/meminfo"); err != nil {
+		log.Printf("[workspace] lxcfs not running — /proc shows host totals (apt-get install lxcfs on the host to fix)")
+		return nil
+	}
+	log.Printf("[workspace] lxcfs detected — mounting virtual /proc and /sys/devices/system/cpu")
+	return []string{
+		root + "/proc/cpuinfo:/proc/cpuinfo:ro",
+		root + "/proc/diskstats:/proc/diskstats:ro",
+		root + "/proc/meminfo:/proc/meminfo:ro",
+		root + "/proc/stat:/proc/stat:ro",
+		root + "/proc/swaps:/proc/swaps:ro",
+		root + "/proc/uptime:/proc/uptime:ro",
+		root + "/sys/devices/system/cpu:/sys/devices/system/cpu:ro",
+	}
+}
+
 // installFirewallRules inserts iptables rules in the DOCKER-USER chain to
-// block workspace containers (on docker0) from reaching host backend services.
-// Runs at most once per process lifetime.
+// block containers on docker0 from reaching host backend services.
+// Idempotent: checks with -C before inserting with -I.
 func installFirewallRules() {
 	firewallOnce.Do(func() {
 		for _, port := range hostServicePorts {
-			// Block traffic coming in on docker0 (bridge) destined for these host ports.
-			// -C checks if the rule already exists before inserting to avoid duplicates.
-			checkArgs := []string{"-C", "DOCKER-USER", "-i", "docker0", "-p", "tcp", "--dport", port, "-j", "DROP"}
-			if err := exec.Command("iptables", checkArgs...).Run(); err != nil {
-				// Rule doesn't exist yet — insert it.
-				insertArgs := []string{"-I", "DOCKER-USER", "-i", "docker0", "-p", "tcp", "--dport", port, "-j", "DROP"}
-				if out, err := exec.Command("iptables", insertArgs...).CombinedOutput(); err != nil {
-					log.Printf("[firewall] WARNING: failed to insert iptables rule for port %s: %v — %s", port, err, out)
+			check := []string{"-C", "DOCKER-USER", "-i", "docker0", "-p", "tcp", "--dport", port, "-j", "DROP"}
+			if err := exec.Command("iptables", check...).Run(); err != nil {
+				insert := []string{"-I", "DOCKER-USER", "-i", "docker0", "-p", "tcp", "--dport", port, "-j", "DROP"}
+				if out, err := exec.Command("iptables", insert...).CombinedOutput(); err != nil {
+					log.Printf("[firewall] WARNING: could not block docker0 → port %s: %v — %s", port, err, out)
 				} else {
 					log.Printf("[firewall] blocked docker0 → host port %s", port)
 				}
@@ -218,8 +267,7 @@ func freePort() (int, error) {
 	return port, nil
 }
 
-// waitForSSH polls addr until the SSH banner (SSH-2.0-...) is received,
-// meaning sshd is actually ready to accept logins.
+// waitForSSH polls addr until the SSH banner (SSH-2.0-...) appears.
 func waitForSSH(addr string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
