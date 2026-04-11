@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	gethcommon "github.com/ethereum/go-ethereum/common"
@@ -70,6 +71,34 @@ func IsAttestationValid(ctx context.Context, rpcURL, attestationUID string) (boo
 		return false, fmt.Errorf("unexpected return type")
 	}
 	return valid, nil
+}
+
+// WaitForAttestationUID polls for the tx receipt until mined (up to 90s) then
+// returns the attestation UID from the Attested event log.
+func WaitForAttestationUID(ctx context.Context, rpcURL, txHash string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+
+	client := newRPCClient(rpcURL)
+	for {
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("timeout waiting for tx %s to be mined", txHash)
+		default:
+		}
+
+		result, err := client.call(ctx, "eth_getTransactionReceipt", txHash)
+		if err == nil && string(result) != "null" {
+			// receipt available — delegate to GetAttestationUID
+			return GetAttestationUID(ctx, rpcURL, txHash)
+		}
+		// not mined yet — wait 3s and retry
+		select {
+		case <-ctx.Done():
+			return "", fmt.Errorf("timeout waiting for tx %s to be mined", txHash)
+		case <-time.After(3 * time.Second):
+		}
+	}
 }
 
 // GetAttestationUID fetches the attestation UID emitted in the Attested event

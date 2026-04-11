@@ -488,25 +488,36 @@ func (s *Server) submitAttestation(sessionID, teamID string, actions []agent.Act
 		teamID,
 		merkleRoot,
 		containerStateHash,
-		"", // ipfsCID — empty for now; a future task uploads the action log to IPFS
+		"",
 	)
 	if err != nil {
 		log.Printf("[attestation] session %s: submit failed: %v", sessionID, err)
 		return
 	}
+	log.Printf("[attestation] session %s: tx submitted: %s — waiting for receipt...", sessionID, result.TxHash)
+
+	// Wait for the tx to be mined and resolve the attestation UID
+	attestationUID, err := chain.WaitForAttestationUID(ctx, s.rpcURL, result.TxHash)
+	if err != nil {
+		log.Printf("[attestation] session %s: could not resolve UID: %v — saving tx_hash only", sessionID, err)
+		attestationUID = ""
+	} else {
+		log.Printf("[attestation] session %s: attestation UID = %s", sessionID, attestationUID)
+	}
 
 	att := &store.Attestation{
-		SessionID:  sessionID,
-		TxHash:     result.TxHash,
-		MerkleRoot: fmt.Sprintf("0x%x", merkleRoot),
-		SchemaUID:  s.easSchemaUID,
-		EASScanURL: "https://base-sepolia.easscan.org/tx/" + result.TxHash,
+		SessionID:      sessionID,
+		TxHash:         result.TxHash,
+		AttestationUID: attestationUID,
+		MerkleRoot:     fmt.Sprintf("0x%x", merkleRoot),
+		SchemaUID:      s.easSchemaUID,
+		EASScanURL:     "https://base-sepolia.easscan.org/tx/" + result.TxHash,
 	}
 	if err := s.store.SaveAttestation(ctx, att); err != nil {
 		log.Printf("[attestation] session %s: save failed: %v", sessionID, err)
 		return
 	}
-	log.Printf("[attestation] session %s: tx=%s", sessionID, result.TxHash)
+	log.Printf("[attestation] session %s: saved — uid=%s tx=%s", sessionID, attestationUID, result.TxHash)
 }
 
 // --- helpers ---

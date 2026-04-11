@@ -84,12 +84,17 @@ func (s *Server) vaultKey(authMgr *auth.Manager) http.HandlerFunc {
 			return
 		}
 
-		// ── 3. Resolve attestation UID from the tx hash ──────────────────────
-		uid, err := chain.GetAttestationUID(r.Context(), s.rpcURL, att.TxHash)
-		if err != nil {
-			log.Printf("vault: GetAttestationUID(%s): %v", att.TxHash, err)
-			http.Error(w, "could not resolve attestation UID", http.StatusInternalServerError)
-			return
+		// ── 3. Get attestation UID (stored at session completion) ────────────
+		uid := att.AttestationUID
+		if uid == "" {
+			// Fallback: resolve from tx hash if UID wasn't stored (old sessions)
+			resolved, err := chain.GetAttestationUID(r.Context(), s.rpcURL, att.TxHash)
+			if err != nil {
+				log.Printf("vault: GetAttestationUID(%s): %v", att.TxHash, err)
+				http.Error(w, "attestation UID not yet resolved — try again shortly", http.StatusServiceUnavailable)
+				return
+			}
+			uid = resolved
 		}
 
 		// ── 4. Check attestation is still valid on-chain ─────────────────────

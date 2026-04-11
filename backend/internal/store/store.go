@@ -34,13 +34,14 @@ type ActionLog struct {
 }
 
 type Attestation struct {
-	ID           int64     `json:"id"`
-	SessionID    string    `json:"session_id"`
-	TxHash       string    `json:"tx_hash"`
-	MerkleRoot   string    `json:"merkle_root"`
-	SchemaUID    string    `json:"schema_uid"`
-	EASScanURL   string    `json:"eas_scan_url"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID              int64     `json:"id"`
+	SessionID       string    `json:"session_id"`
+	TxHash          string    `json:"tx_hash"`
+	AttestationUID  string    `json:"attestation_uid"`  // resolved from tx receipt
+	MerkleRoot      string    `json:"merkle_root"`
+	SchemaUID       string    `json:"schema_uid"`
+	EASScanURL      string    `json:"eas_scan_url"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 type ProviderRecord struct {
@@ -94,14 +95,16 @@ func (s *Store) Migrate(ctx context.Context) error {
 		);
 
 		CREATE TABLE IF NOT EXISTS attestations (
-			id           BIGSERIAL PRIMARY KEY,
-			session_id   TEXT NOT NULL REFERENCES sessions(id),
-			tx_hash      TEXT NOT NULL,
-			merkle_root  TEXT NOT NULL DEFAULT '',
-			schema_uid   TEXT NOT NULL DEFAULT '',
-			eas_scan_url TEXT NOT NULL DEFAULT '',
-			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			id               BIGSERIAL PRIMARY KEY,
+			session_id       TEXT NOT NULL REFERENCES sessions(id),
+			tx_hash          TEXT NOT NULL,
+			attestation_uid  TEXT NOT NULL DEFAULT '',
+			merkle_root      TEXT NOT NULL DEFAULT '',
+			schema_uid       TEXT NOT NULL DEFAULT '',
+			eas_scan_url     TEXT NOT NULL DEFAULT '',
+			created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);
+		ALTER TABLE attestations ADD COLUMN IF NOT EXISTS attestation_uid TEXT NOT NULL DEFAULT '';
 
 		CREATE TABLE IF NOT EXISTS provider_selections (
 			id             BIGSERIAL PRIMARY KEY,
@@ -200,18 +203,18 @@ func (s *Store) GetActionLog(ctx context.Context, sessionID string) (*ActionLog,
 
 func (s *Store) SaveAttestation(ctx context.Context, a *Attestation) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO attestations (session_id, tx_hash, merkle_root, schema_uid, eas_scan_url)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		a.SessionID, a.TxHash, a.MerkleRoot, a.SchemaUID, a.EASScanURL)
+		`INSERT INTO attestations (session_id, tx_hash, attestation_uid, merkle_root, schema_uid, eas_scan_url)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		a.SessionID, a.TxHash, a.AttestationUID, a.MerkleRoot, a.SchemaUID, a.EASScanURL)
 	return err
 }
 
 func (s *Store) GetAttestation(ctx context.Context, sessionID string) (*Attestation, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, session_id, tx_hash, merkle_root, schema_uid, eas_scan_url, created_at
+		`SELECT id, session_id, tx_hash, attestation_uid, merkle_root, schema_uid, eas_scan_url, created_at
 		 FROM attestations WHERE session_id=$1 ORDER BY id DESC LIMIT 1`, sessionID)
 	var a Attestation
-	err := row.Scan(&a.ID, &a.SessionID, &a.TxHash, &a.MerkleRoot, &a.SchemaUID, &a.EASScanURL, &a.CreatedAt)
+	err := row.Scan(&a.ID, &a.SessionID, &a.TxHash, &a.AttestationUID, &a.MerkleRoot, &a.SchemaUID, &a.EASScanURL, &a.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
