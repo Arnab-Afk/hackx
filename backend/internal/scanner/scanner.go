@@ -136,8 +136,11 @@ func collectFiles(root string) ([]repoFile, error) {
 
 	// Second pass: walk up to 2 levels for nested package.json / contracts
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			if d != nil && d.IsDir() {
+		if err != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			if true {
 				name := d.Name()
 				// Skip hidden dirs and heavy dirs
 				if strings.HasPrefix(name, ".") || name == "node_modules" ||
@@ -279,7 +282,7 @@ Rules:
 	// Call proxy (Anthropic-compatible format)
 	reqBody := map[string]any{
 		"model":      s.model,
-		"max_tokens": 2048,
+		"max_tokens": 4096,
 		"messages": []map[string]any{
 			{"role": "user", "content": prompt},
 		},
@@ -320,16 +323,28 @@ Rules:
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		StopReason string `json:"stop_reason"`
 	}
 	if err := json.Unmarshal(respBody, &anthropicResp); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+		return nil, fmt.Errorf("parse response: %w\nraw: %s", err, string(respBody[:min(len(respBody), 500)]))
 	}
 
 	if len(anthropicResp.Content) == 0 {
-		return nil, fmt.Errorf("empty response from model")
+		return nil, fmt.Errorf("empty response from model (stop_reason: %s)\nraw: %s", anthropicResp.StopReason, string(respBody[:min(len(respBody), 500)]))
 	}
 
-	rawJSON := anthropicResp.Content[0].Text
+	// Find the first text block (skip thinking blocks)
+	var rawJSON string
+	for _, block := range anthropicResp.Content {
+		if block.Type == "text" && block.Text != "" {
+			rawJSON = block.Text
+			break
+		}
+	}
+	if rawJSON == "" {
+		return nil, fmt.Errorf("no text block in response (stop_reason: %s, blocks: %d)\nraw: %s",
+			anthropicResp.StopReason, len(anthropicResp.Content), string(respBody[:min(len(respBody), 800)]))
+	}
 
 	// Strip markdown fences if the model added them anyway
 	rawJSON = strings.TrimSpace(rawJSON)
@@ -348,4 +363,11 @@ Rules:
 
 	plan.RepoURL = repoURL
 	return &plan, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
