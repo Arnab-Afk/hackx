@@ -130,12 +130,8 @@ func GetAttestationUID(ctx context.Context, rpcURL, txHash string) (string, erro
 
 	for _, log := range receipt.Logs {
 		if len(log.Topics) >= 1 && strings.EqualFold(log.Topics[0], attestedTopic) {
-			// uid is in topics[3] for indexed version or data — depends on EAS version
-			// Base Sepolia EAS: uid is topics[3]
-			if len(log.Topics) >= 4 {
-				return log.Topics[3], nil
-			}
-			// Fallback: uid is first 32 bytes of data
+			// EAS Attested event: uid is NOT indexed — it's the first 32 bytes of data
+			// event Attested(address indexed recipient, address indexed attester, bytes32 uid, bytes32 indexed schema)
 			if len(log.Data) >= 66 {
 				return "0x" + log.Data[2:66], nil
 			}

@@ -94,6 +94,7 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	})
 
 	r.Get("/attestations/{sessionID}", srv.getAttestation)
+	r.Post("/sessions/{sessionID}/attest", srv.registerAttestation)
 
 	// Vault key gate — blockchain-gated container decryption key
 	r.Get("/vault/nonce", vaultNonce(authMgr))
@@ -404,6 +405,47 @@ func (s *Server) getAttestation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, http.StatusOK, att)
+}
+
+// POST /sessions/:sessionID/attest
+// Registers an on-chain EAS attestation for a session by tx hash.
+// Resolves the attestation UID from the receipt and stores it in the DB.
+func (s *Server) registerAttestation(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+
+	var req struct {
+		TxHash string `json:"tx_hash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TxHash == "" {
+		http.Error(w, "tx_hash required", http.StatusBadRequest)
+		return
+	}
+
+	uid, err := chain.WaitForAttestationUID(r.Context(), s.rpcURL, req.TxHash)
+	if err != nil {
+		http.Error(w, "could not resolve attestation UID: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	att := &store.Attestation{
+		SessionID:      sessionID,
+		TxHash:         req.TxHash,
+		AttestationUID: uid,
+		SchemaUID:      s.easSchemaUID,
+		EASScanURL:     "https://base-sepolia.easscan.org/tx/" + req.TxHash,
+	}
+	if err := s.store.SaveAttestation(r.Context(), att); err != nil {
+		http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("[attest] session=%s uid=%s tx=%s", sessionID, uid, req.TxHash)
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"session_id":      sessionID,
+		"attestation_uid": uid,
+		"tx_hash":         req.TxHash,
+		"eas_scan_url":    att.EASScanURL,
+	})
 }
 
 // runAgentSession runs the agent and publishes events to the session bus.
