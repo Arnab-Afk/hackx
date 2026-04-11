@@ -1,126 +1,131 @@
 "use client"
 
-import { Wordmark } from "./Wordmark"
-
-const LINKS = {
-  Product: [
-    { label: "How it works", href: "#how-it-works" },
-    { label: "Features", href: "#features" },
-    { label: "Use Cases", href: "#providers" },
-    { label: "Launch App", href: "http://localhost:3001" },
-  ],
-  Resources: [
-    { label: "GitHub", href: "https://github.com/Arnab-Afk/hackx" },
-    { label: "Architecture", href: "https://github.com/Arnab-Afk/hackx#architecture" },
-    { label: "Smart Contracts", href: "https://github.com/Arnab-Afk/hackx/tree/main/contracts" },
-    { label: "README", href: "https://github.com/Arnab-Afk/hackx/blob/main/README.md" },
-  ],
-  Technology: [
-    { label: "EAS on Base Sepolia", href: "https://attest.org" },
-    { label: "x402 Protocol", href: "https://github.com/coinbase/x402" },
-    { label: "LUKS Encryption", href: "https://gitlab.com/cryptsetup/cryptsetup" },
-    { label: "gVisor Sandbox", href: "https://gvisor.dev" },
-  ],
-  Connect: [
-    { label: "Twitter / X", href: "https://x.com" },
-    { label: "Discord", href: "#" },
-    { label: "HackX Repo", href: "https://github.com/Arnab-Afk/hackx" },
-    { label: "BaseScan", href: "https://sepolia.basescan.org" },
-  ],
-}
-
 export function Footer() {
+  const year = new Date().getFullYear()
+
   return (
-    <footer
-      style={{
-        borderTop: "1px solid rgba(255,255,255,0.06)",
-        padding: "64px 24px 40px",
-        maxWidth: 1180,
-        margin: "0 auto",
-      }}
-    >
+    <footer style={{ background: "#030303", overflow: "hidden" }}>
+      {/* Top info row */}
       <div
         style={{
+          maxWidth: 1180,
+          margin: "0 auto",
+          padding: "64px 40px 48px",
           display: "grid",
-          gridTemplateColumns: "1.5fr repeat(4, 1fr)",
+          gridTemplateColumns: "1fr 1fr 1fr",
           gap: 40,
-          marginBottom: 60,
+          alignItems: "start",
         }}
       >
-        {/* Brand */}
+        {/* Tagline */}
         <div>
-          <Wordmark className="text-base" />
-          <p style={{ fontSize: 13, color: "#444", lineHeight: 1.6, marginTop: 12, maxWidth: 220 }}>
-            Trustless cloud infrastructure. Agentic deployment. Cryptographic proof that nobody, including us, can access your data.
+          <p style={{ fontSize: 15, color: "#999", lineHeight: 1.9, fontWeight: 400, margin: 0 }}>
+            Deploy trustlessly.<br />
+            Verify on-chain.<br />
+            Trust nobody.
           </p>
         </div>
 
-        {/* Link columns */}
-        {Object.entries(LINKS).map(([col, links]) => (
-          <div key={col}>
-            <div
-              style={{
-                fontSize: 11,
-                letterSpacing: "0.1em",
-                textTransform: "uppercase",
-                color: "#444",
-                marginBottom: 16,
-              }}
+        {/* Center links */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {[
+            { label: "GitHub", href: "https://github.com/Arnab-Afk/hackx" },
+            { label: "Architecture", href: "https://github.com/Arnab-Afk/hackx#architecture" },
+            { label: "Smart Contracts", href: "https://github.com/Arnab-Afk/hackx/tree/main/contracts" },
+          ].map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 15, color: "#999", textDecoration: "none", transition: "color 0.15s" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "#fff")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "#999")}
             >
-              {col}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {links.map((l) => (
-                <a
-                  key={l.label}
-                  href={l.href}
-                  target={l.href.startsWith("http") ? "_blank" : undefined}
-                  rel={l.href.startsWith("http") ? "noopener noreferrer" : undefined}
-                  style={{
-                    fontSize: 13,
-                    color: "#555",
-                    textDecoration: "none",
-                    transition: "color 0.15s",
-                  }}
-                  onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = "#fff")}
-                  onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = "#555")}
-                >
-                  {l.label}
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
+              {l.label}
+            </a>
+          ))}
+        </div>
+
+        {/* Right links */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {[
+            { label: "EAS Attestations", href: "https://attest.org" },
+            { label: "x402 Protocol", href: "https://github.com/coinbase/x402" },
+            { label: "BaseScan", href: "https://sepolia.basescan.org" },
+          ].map((l) => (
+            <a
+              key={l.label}
+              href={l.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontSize: 15, color: "#999", textDecoration: "none", transition: "color 0.15s" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "#fff")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "#999")}
+            >
+              {l.label}
+            </a>
+          ))}
+        </div>
+      </div>
+
+      {/* Giant wordmark — left-aligned, bleeds off bottom like WISP reference */}
+      <div
+        style={{
+          padding: "0 20px",
+          lineHeight: 0.82,
+          userSelect: "none",
+          overflow: "hidden",
+          marginBottom: -24,
+          textAlign: "left",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "clamp(120px, 22vw, 320px)",
+            fontWeight: 800,
+            letterSpacing: "-0.04em",
+            color: "#fff",
+            display: "inline-block",
+            whiteSpace: "nowrap",
+          }}
+        >
+          COMPUT
+          <span style={{ display: "inline-block", transform: "scaleX(-1)" }}>E</span>
+        </span>
       </div>
 
       {/* Bottom bar */}
       <div
         style={{
+          borderTop: "1px solid rgba(255,255,255,0.07)",
+          padding: "20px 40px",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          paddingTop: 24,
-          borderTop: "1px solid rgba(255,255,255,0.05)",
         }}
       >
-        <span style={{ fontSize: 12, color: "#333" }}>
-          © {new Date().getFullYear()} COMPUT3. Built for HackX 2025.
-        </span>
-        <div
+        <span
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 7,
-            fontSize: 12,
+            fontSize: 11,
             color: "#444",
-            border: "1px solid rgba(255,255,255,0.07)",
-            borderRadius: 100,
-            padding: "4px 12px",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
           }}
         >
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ade80", display: "inline-block" }} />
-          All systems operational
-        </div>
+          © {year} COMPUT3. All rights reserved.
+        </span>
+        <span style={{ fontSize: 12, color: "#444" }}>
+          Made with ♥ by{" "}
+          <a
+            href="https://github.com/Arnab-Afk/hackx"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#fff", textDecoration: "none", fontWeight: 600 }}
+          >
+            Team Vecna Bytes
+          </a>
+        </span>
       </div>
     </footer>
   )
