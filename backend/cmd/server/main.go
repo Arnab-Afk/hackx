@@ -50,6 +50,7 @@ func main() {
 	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, "", cfg.AgentModel,
 		cfg.BaseSepolia_RPC_URL, cfg.ProviderRegistryAddress,
 		cfg.EASSchemaUID, cfg.AgentWalletPrivateKey,
+		cfg.GitHubClientID, cfg.GitHubClientSecret, cfg.GitHubCallbackURL,
 	)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

@@ -12,6 +12,11 @@ type Config struct {
 	ScanModel   string // model for repo scanning (via proxy)
 	AgentModel  string // model for deployment agent (via proxy)
 
+	// GitHub OAuth App — for private repo access
+	GitHubClientID     string
+	GitHubClientSecret string
+	GitHubCallbackURL  string // e.g. https://backendapi.comput3.xyz/auth/github/callback
+
 	// Blockchain
 	BaseSepolia_RPC_URL      string
 	ProviderRegistryAddress  string
@@ -37,6 +42,10 @@ func Load() *Config {
 		EASSchemaUID:            getEnv("EAS_SCHEMA_UID", "0x001219cb6b1ad28ce53a643f532872015acab85429133286b9e2c96e910945f0"),
 		AgentWalletPrivateKey:   getEnv("AGENT_WALLET_PRIVATE_KEY", ""),
 		VaultMasterSecret:       getEnv("VAULT_MASTER_SECRET", ""),
+
+		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
+		GitHubCallbackURL:  getEnv("GITHUB_CALLBACK_URL", "https://backendapi.comput3.xyz/auth/github/callback"),
 	}
 }
 

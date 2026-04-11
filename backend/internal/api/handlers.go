@@ -27,30 +27,36 @@ var upgrader = websocket.Upgrader{
 }
 
 type Server struct {
-	mgr             *container.Manager
-	scanner         *scanner.Scanner
-	store           *store.Store
-	proxyURL        string
-	apiKey          string
-	agentModel      string
-	rpcURL          string
-	registryAddress string
-	easSchemaUID    string
-	agentWalletKey  string
+	mgr                *container.Manager
+	scanner            *scanner.Scanner
+	store              *store.Store
+	proxyURL           string
+	apiKey             string
+	agentModel         string
+	rpcURL             string
+	registryAddress    string
+	easSchemaUID       string
+	agentWalletKey     string
+	githubClientID     string
+	githubClientSecret string
+	githubCallbackURL  string
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey string) http.Handler {
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL string) http.Handler {
 	srv := &Server{
-		mgr:             mgr,
-		scanner:         sc,
-		store:           s,
-		proxyURL:        proxyURL,
-		apiKey:          apiKey,
-		agentModel:      agentModel,
-		rpcURL:          rpcURL,
-		registryAddress: registryAddress,
-		easSchemaUID:    easSchemaUID,
-		agentWalletKey:  agentWalletKey,
+		mgr:                mgr,
+		scanner:            sc,
+		store:              s,
+		proxyURL:           proxyURL,
+		apiKey:             apiKey,
+		agentModel:         agentModel,
+		rpcURL:             rpcURL,
+		registryAddress:    registryAddress,
+		easSchemaUID:       easSchemaUID,
+		agentWalletKey:     agentWalletKey,
+		githubClientID:     githubClientID,
+		githubClientSecret: githubClientSecret,
+		githubCallbackURL:  githubCallbackURL,
 	}
 
 	authMgr := auth.NewManager()
@@ -130,6 +136,11 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 
 	r.Post("/repos/scan", srv.scanRepo)
 	r.Post("/workspaces/{containerID}/deploy", srv.deployToWorkspace)
+
+	// GitHub OAuth — connect account for private repo access
+	r.Get("/auth/github", srv.githubOAuthStart)
+	r.Get("/auth/github/callback", srv.githubOAuthCallback)
+	r.Get("/auth/github/repos", srv.githubListRepos)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -612,15 +623,24 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 // POST /repos/scan
 // Clones the repo, detects tech stack heuristically (no AI), returns deploy options.
+// Pass wallet to auto-use stored GitHub token for private repos.
 func (s *Server) scanRepo(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RepoURL string `json:"repo_url"`
+		Wallet  string `json:"wallet"`       // optional — looks up stored GitHub token
+		Token   string `json:"github_token"` // optional — explicit token override
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RepoURL == "" {
 		http.Error(w, "repo_url required", http.StatusBadRequest)
 		return
 	}
-	result, err := scanner.ScanRepo(r.Context(), req.RepoURL)
+
+	token := req.Token
+	if token == "" && req.Wallet != "" {
+		token, _ = githubTokenStore.get(req.Wallet)
+	}
+
+	result, err := scanner.ScanRepo(r.Context(), req.RepoURL, token)
 	if err != nil {
 		http.Error(w, "scan failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -638,14 +658,21 @@ func (s *Server) deployToWorkspace(w http.ResponseWriter, r *http.Request) {
 		RepoURL     string            `json:"repo_url"`
 		OptionIndex int               `json:"option_index"` // index into scan.Options
 		EnvVars     map[string]string `json:"env_vars"`     // user-supplied env vars
+		Wallet      string            `json:"wallet"`       // optional — looks up stored GitHub token
+		Token       string            `json:"github_token"` // optional — explicit token override
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RepoURL == "" {
 		http.Error(w, "repo_url required", http.StatusBadRequest)
 		return
 	}
 
+	token := req.Token
+	if token == "" && req.Wallet != "" {
+		token, _ = githubTokenStore.get(req.Wallet)
+	}
+
 	// Re-scan to get the deploy options.
-	scan, err := scanner.ScanRepo(r.Context(), req.RepoURL)
+	scan, err := scanner.ScanRepo(r.Context(), req.RepoURL, token)
 	if err != nil {
 		http.Error(w, "scan failed: "+err.Error(), http.StatusBadRequest)
 		return
@@ -676,7 +703,12 @@ func (s *Server) deployToWorkspace(w http.ResponseWriter, r *http.Request) {
 	script.WriteString("set -e\n")
 	script.WriteString("cd ~\n")
 	script.WriteString("rm -rf app\n")
-	script.WriteString(fmt.Sprintf("git clone --depth 1 %s app\n", req.RepoURL))
+	cloneURL := req.RepoURL
+	if token != "" {
+		// Inject token: https://github.com/user/repo → https://x-access-token:TOKEN@github.com/user/repo
+		cloneURL = strings.Replace(cloneURL, "https://github.com/", fmt.Sprintf("https://x-access-token:%s@github.com/", token), 1)
+	}
+	script.WriteString(fmt.Sprintf("git clone --depth 1 %s app\n", cloneURL))
 	script.WriteString("cd app\n")
 
 	// Write env vars into .env

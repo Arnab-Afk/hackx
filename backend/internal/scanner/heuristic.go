@@ -28,15 +28,21 @@ type RepoScan struct {
 }
 
 // ScanRepo clones the repo (shallow) and returns detected deploy options.
-func ScanRepo(ctx context.Context, repoURL string) (*RepoScan, error) {
+// token is an optional GitHub OAuth/PAT token for private repos.
+func ScanRepo(ctx context.Context, repoURL string, token ...string) (*RepoScan, error) {
 	dir, err := os.MkdirTemp("", "zkloud-heuristic-*")
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
 
+	cloneURL := extractRepoRoot(repoURL)
+	if len(token) > 0 && token[0] != "" {
+		cloneURL = injectToken(cloneURL, token[0])
+	}
+
 	_, err = git.PlainCloneContext(ctx, dir, false, &git.CloneOptions{
-		URL:   extractRepoRoot(repoURL),
+		URL:   cloneURL,
 		Depth: 1,
 	})
 	if err != nil {
