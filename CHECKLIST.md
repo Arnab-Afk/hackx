@@ -61,9 +61,9 @@ _Directory: `/frontend`_
 _Framework: Next.js (already initialized, blank)_
 
 - [ ] **3.1** Add RainbowKit + wagmi — wallet connect with Base Sepolia network config
-- [WIP: claude] **3.2** Build GitHub URL input page (`/`) — text input, submit triggers `POST /sessions`
-- [WIP: claude] **3.3** Build deployment plan review page (`/sessions/:id/plan`) — show agent's plan, cost estimate, confirm/reject buttons
-- [WIP: claude] **3.4** Build live deployment stream page (`/sessions/:id`) — WebSocket client, render agent events as a step-by-step feed
+- [ ] **3.2** Build GitHub URL input page (`/`) — text input, submit triggers `POST /sessions`
+- [ ] **3.3** Build deployment plan review page (`/sessions/:id/plan`) — show agent's plan, cost estimate, confirm/reject buttons
+- [ ] **3.4** Build live deployment stream page (`/sessions/:id`) — WebSocket client, render agent events as a step-by-step feed
 - [ ] **3.5** Build dashboard page (`/dashboard`) — list all team containers, ports, status, attestation links
 - [ ] **3.6** Fund agent wallet UI — show USDC balance, deposit flow
 - [ ] **3.7** Build attestation verify page (`/verify/:sessionId`) — show action log, merkle root, EAS link, "verify yourself" instructions
@@ -75,11 +75,11 @@ _Framework: Next.js (already initialized, blank)_
 _Directory: `/landing`_
 _Framework: Next.js (already initialized, blank)_
 
-- [WIP: claude] **4.1** Hero section — tagline, animated terminal showing a live deploy
-- [WIP: claude] **4.2** How it works — 4-step visual: Paste repo → Agent analyzes → Compute sourced → Verified on-chain
-- [WIP: claude] **4.3** Why trustless section — compare trust-based (AWS) vs verifiable (zkLOUD)
-- [WIP: claude] **4.4** CTA — "Try it now" → links to frontend app
-- [WIP: claude] **4.5** Provider section — "Run a node, earn USDC" with link to provider docs
+- [ ] **4.1** Hero section — tagline, animated terminal showing a live deploy
+- [ ] **4.2** How it works — 4-step visual: Paste repo → Agent analyzes → Compute sourced → Verified on-chain
+- [ ] **4.3** Why trustless section — compare trust-based (AWS) vs verifiable (zkLOUD)
+- [ ] **4.4** CTA — "Try it now" → links to frontend app
+- [ ] **4.5** Provider section — "Run a node, earn USDC" with link to provider docs
 
 ---
 
