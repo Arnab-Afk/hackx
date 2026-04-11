@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -230,6 +231,8 @@ func (s *Server) destroyContainer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	ctx := context.Background()
 
+	log.Printf("[session %s] starting — proxy=%s model=%s", sessionID, s.proxyURL, s.agentModel)
+
 	// If a repo URL was given, prepend it into the prompt so the agent calls analyze_repo
 	if repoURL != "" {
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
@@ -240,6 +243,9 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	// Forward events to bus
 	go func() {
 		for event := range agentSess.Events() {
+			if event.Type == "error" {
+				log.Printf("[session %s] agent error: %s", sessionID, event.Message)
+			}
 			sessionBus.publish(sessionID, event)
 		}
 	}()
@@ -249,6 +255,9 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	state := "completed"
 	if err != nil {
 		state = "failed"
+		log.Printf("[session %s] FAILED: %v", sessionID, err)
+	} else {
+		log.Printf("[session %s] completed successfully", sessionID)
 	}
 
 	// Persist results
