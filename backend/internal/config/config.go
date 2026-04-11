@@ -13,9 +13,10 @@ type Config struct {
 	AgentModel  string // model for deployment agent (via proxy)
 
 	// GitHub OAuth App — for private repo access
-	GitHubClientID     string
-	GitHubClientSecret string
-	GitHubCallbackURL  string // e.g. https://backendapi.comput3.xyz/auth/github/callback
+	GitHubClientID      string
+	GitHubClientSecret  string
+	GitHubCallbackURL   string // e.g. https://backendapi.comput3.xyz/auth/github/callback
+	GitHubFrontendURL   string // redirect target after OAuth e.g. https://app.comput3.xyz/deploy
 
 	// Blockchain
 	BaseSepolia_RPC_URL      string
@@ -46,6 +47,7 @@ func Load() *Config {
 		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
 		GitHubCallbackURL:  getEnv("GITHUB_CALLBACK_URL", "https://backendapi.comput3.xyz/auth/github/callback"),
+		GitHubFrontendURL:  getEnv("GITHUB_FRONTEND_URL", "https://app.comput3.xyz/deploy"),
 	}
 }
 

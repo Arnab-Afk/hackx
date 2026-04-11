@@ -40,9 +40,10 @@ type Server struct {
 	githubClientID     string
 	githubClientSecret string
 	githubCallbackURL  string
+	githubFrontendURL  string
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL string) http.Handler {
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL string) http.Handler {
 	srv := &Server{
 		mgr:                mgr,
 		scanner:            sc,
@@ -57,6 +58,7 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 		githubClientID:     githubClientID,
 		githubClientSecret: githubClientSecret,
 		githubCallbackURL:  githubCallbackURL,
+		githubFrontendURL:  githubFrontendURL,
 	}
 
 	authMgr := auth.NewManager()

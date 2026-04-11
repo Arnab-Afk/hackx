@@ -118,13 +118,10 @@ func (s *Server) githubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 
 	githubTokenStore.set(wallet, token)
 
-	// Return JSON (frontend can also be redirected here)
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"wallet":       wallet,
-		"github_token": token,
-		"status":       "connected",
-	})
+	// Redirect back to frontend deploy page with success flag.
+	// Frontend reads ?github=connected to mark OAuth as done.
+	frontendURL := s.githubFrontendURL + "?github=connected&wallet=" + url.QueryEscape(wallet)
+	http.Redirect(w, r, frontendURL, http.StatusFound)
 }
 
 // GET /auth/github/repos?wallet=0x...
