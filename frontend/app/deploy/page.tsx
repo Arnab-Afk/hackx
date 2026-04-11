@@ -2,503 +2,546 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { MOCK_SESSIONS } from "@/lib/mockData";
+import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
+import { useAccount } from "wagmi";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
 
-type Project = {
-  id: string;
-  name: string;
-  description: string;
+// ── types ─────────────────────────────────────────────────────────────────────
+
+type DeployOption = {
+  type: "frontend" | "backend";
+  framework: string;
+  language: string;
+  install_cmd: string;
+  build_cmd: string;
+  start_cmd: string;
+  port: number;
+};
+
+type RepoScan = {
+  repo_url: string;
+  options: DeployOption[];
+  env_vars: string[];
+};
+
+type Workspace = {
+  container_id: string;
+  ssh_port: number;
+  app_port: number;
+  username: string;
+  password: string;
+  storage_path: string;
   status: string;
 };
 
-type VMConfig = {
-  ram: "1GB" | "2GB" | "4GB" | "8GB";
-  cpu: "1 core" | "2 core" | "4 core";
+type DeployResult = {
+  container_id: string;
+  framework: string;
+  type: string;
+  port: number;
+  app_url: string;
 };
 
-const RAM_OPTIONS: VMConfig["ram"][] = ["1GB", "2GB", "4GB", "8GB"];
-const CPU_OPTIONS: VMConfig["cpu"][] = ["1 core", "2 core", "4 core"];
+// ── helpers ───────────────────────────────────────────────────────────────────
 
-function truncate(str: string, n: number) {
-  return str.length > n ? str.slice(0, n) + "\u2026" : str;
+const RAM_MB: Record<string, number> = { "1 GB": 1024, "2 GB": 2048, "4 GB": 4096, "8 GB": 8192 };
+const CPU_CORES: Record<string, number> = { "1 core": 1, "2 cores": 2, "4 cores": 4 };
+
+const FRAMEWORK_ICONS: Record<string, string> = {
+  nextjs: "▲", react: "⚛", vue: "🟩", sveltekit: "🔥", nuxt: "💚",
+  express: "🟨", fastify: "⚡", nestjs: "🐱", fastapi: "🚀", flask: "🌶",
+  django: "🎸", go: "🐹", static: "📄",
+};
+
+function FrameworkBadge({ opt }: { opt: DeployOption }) {
+  const icon = FRAMEWORK_ICONS[opt.framework] ?? "📦";
+  const color = opt.type === "frontend" ? "#7c45ff" : "#0ea5e9";
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: 11, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+        {opt.type}
+      </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 20 }}>{icon}</span>
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 700, color: "#F9FAFB", textTransform: "capitalize" }}>
+            {opt.framework}
+          </p>
+          <p style={{ fontSize: 11, color: "#6B7280" }}>:{opt.port} · {opt.language}</p>
+        </div>
+        <span style={{
+          marginLeft: "auto", fontSize: 10, fontWeight: 600, padding: "2px 8px",
+          borderRadius: 99, color, background: `${color}22`, border: `1px solid ${color}44`,
+        }}>
+          {opt.type}
+        </span>
+      </div>
+      <p style={{ fontSize: 11, fontFamily: "monospace", color: "#4B5563", marginTop: 2 }}>
+        {opt.start_cmd}
+      </p>
+    </div>
+  );
 }
 
-const statusMeta: Record<string, { dot: string; text: string; bg: string }> = {
-  completed: { dot: "#28A745", text: "#28A745", bg: "rgba(40,167,69,0.1)" },
-  failed:    { dot: "#DC3545", text: "#DC3545", bg: "rgba(220,53,69,0.1)" },
-  default:   { dot: "#6B7280", text: "#6B7280", bg: "rgba(107,114,128,0.1)" },
-};
-function getSm(s: string) { return statusMeta[s] ?? statusMeta.default; }
+// ── page ──────────────────────────────────────────────────────────────────────
+
+type Phase = "repo" | "scanning" | "pick" | "vm" | "deploying" | "done" | "error";
 
 export default function DeployPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-  const [vmConfig, setVmConfig] = useState<VMConfig>({ ram: "2GB", cpu: "2 core" });
-  const [phase, setPhase] = useState<"idle" | "deploying" | "done" | "error">("idle");
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [errMsg, setErrMsg] = useState("");
-  const [teamName, setTeamName] = useState("Your");
-  const [githubRepo, setGithubRepo] = useState("");
-  const [githubConnected, setGithubConnected] = useState(false);
-  const [repoInput, setRepoInput] = useState("");
+  const router = useRouter();
+  const { address } = useAccount();
 
-  const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const [phase, setPhase] = useState<Phase>("repo");
+  const [errMsg, setErrMsg] = useState("");
+
+  // Stage 1 — repo
+  const [repoURL, setRepoURL] = useState("");
+  const [githubConnected, setGithubConnected] = useState(false);
+
+  // Stage 2 — scan
+  const [scan, setScan] = useState<RepoScan | null>(null);
+  const [selectedOption, setSelectedOption] = useState<number>(0);
+  const [envVars, setEnvVars] = useState<Record<string, string>>({});
+
+  // Stage 3 — VM
+  const [ram, setRam] = useState("2 GB");
+  const [cpu, setCpu] = useState("2 cores");
+  const [sessionId, setSessionId] = useState("");
+
+  // Stage 4 — result
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
 
   useEffect(() => {
-    const storedTeamName = localStorage.getItem("zkloud_team_name");
-    if (storedTeamName) setTeamName(storedTeamName);
-
-    const sessionIds: string[] = JSON.parse(localStorage.getItem("comput3_sessions") ?? "[]");
-    if (sessionIds.length > 0) {
-      Promise.all(
-        sessionIds.slice(0, 10).map((id) =>
-          fetch(`${API}/sessions/${id}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .catch(() => null)
-        )
-      ).then((results) => {
-        const real = results.filter(Boolean);
-        if (real.length > 0) {
-          setProjects(
-            real.map((s: { id: string; prompt: string; state: string }) => ({
-              id: s.id,
-              name: truncate(s.prompt, 40),
-              description: s.prompt,
-              status: s.state,
-            }))
-          );
-        } else {
-          setProjects(
-            MOCK_SESSIONS.map((s) => ({
-              id: s.id,
-              name: truncate(s.prompt, 40),
-              description: s.prompt,
-              status: s.state,
-            }))
-          );
-        }
-      });
-    } else {
-      setProjects(
-        MOCK_SESSIONS.map((s) => ({
-          id: s.id,
-          name: truncate(s.prompt, 40),
-          description: s.prompt,
-          status: s.state,
-        }))
-      );
+    // If user came back from GitHub OAuth, the token is stored server-side.
+    // Just mark as connected.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("github") === "connected") {
+      setGithubConnected(true);
+      router.replace("/deploy");
     }
-  }, []);
+  }, [router]);
+
+  // ── handlers ────────────────────────────────────────────────────────────────
+
+  async function handleScan() {
+    if (!repoURL.trim()) return;
+    setPhase("scanning");
+    setErrMsg("");
+    try {
+      const res = await fetch(`${API}/repos/scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_url: repoURL.trim(), wallet: address ?? "" }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const data: RepoScan = await res.json();
+      if (!data.options?.length) throw new Error("No deployable components detected. Is this a supported project?");
+      setScan(data);
+      // pre-fill env var keys
+      const defaults: Record<string, string> = {};
+      (data.env_vars ?? []).forEach((k) => (defaults[k] = ""));
+      setEnvVars(defaults);
+      setPhase("pick");
+    } catch (e) {
+      setErrMsg(String(e));
+      setPhase("error");
+    }
+  }
 
   async function handleDeploy() {
-    if (!selectedProjectId) return;
+    if (!scan) return;
     setPhase("deploying");
     setErrMsg("");
 
+    // Get or create team
     let teamId = localStorage.getItem("zkloud_team_id");
     if (!teamId) {
       const name = "team-" + Math.random().toString(36).slice(2, 9);
-      try {
-        const res = await fetch(`${API}/teams`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, public_key: "" }),
-        });
-        const t = await res.json();
-        localStorage.setItem("zkloud_team_id", t.id);
-        localStorage.setItem("zkloud_team_name", t.name);
-        teamId = t.id;
-      } catch {
-        setPhase("error");
-        setErrMsg("Failed to register team. Is the backend running?");
-        return;
-      }
+      const res = await fetch(`${API}/teams`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, public_key: "" }),
+      });
+      if (!res.ok) { setPhase("error"); setErrMsg("Could not create team"); return; }
+      const t = await res.json();
+      localStorage.setItem("zkloud_team_id", t.id);
+      localStorage.setItem("zkloud_team_name", t.name);
+      teamId = t.id;
     }
 
-    const project = projects.find((p) => p.id === selectedProjectId);
     try {
-      const res = await fetch(`${API}/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      // 1. Allocate encrypted workspace
+      const wsRes = await fetch(`${API}/workspaces`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           team_id: teamId,
-          prompt: project?.description ?? "",
-          vm_config: { ram: vmConfig.ram, cpu: vmConfig.cpu },
-          github_repo: githubConnected ? githubRepo : undefined,
+          ram_mb: RAM_MB[ram] ?? 2048,
+          cpu_cores: CPU_CORES[cpu] ?? 2,
+          session_id: sessionId || undefined,
         }),
       });
-      if (!res.ok) throw new Error(await res.text());
-      const sess = await res.json();
-      setSessionId(sess.id);
-      try {
-        const existing: string[] = JSON.parse(localStorage.getItem("comput3_sessions") ?? "[]");
-        const updated = [sess.id, ...existing.filter((id) => id !== sess.id)].slice(0, 50);
-        localStorage.setItem("comput3_sessions", JSON.stringify(updated));
-      } catch { /* ignore */ }
+      if (!wsRes.ok) throw new Error("Workspace allocation failed: " + await wsRes.text());
+      const ws: Workspace = await wsRes.json();
+      setWorkspace(ws);
+
+      // 2. Wait for workspace to be ready (poll status)
+      let ready = ws.status === "ready";
+      for (let i = 0; i < 60 && !ready; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const st = await fetch(`${API}/workspaces/${ws.container_id}/status`).then((r) => r.json());
+        if (st.status === "ready") ready = true;
+      }
+      if (!ready) throw new Error("Workspace timed out waiting to be ready");
+
+      // 3. Deploy the repo into the workspace
+      const depRes = await fetch(`${API}/workspaces/${ws.container_id}/deploy`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo_url: scan.repo_url,
+          option_index: selectedOption,
+          env_vars: envVars,
+          wallet: address ?? "",
+        }),
+      });
+      if (!depRes.ok) throw new Error("Deploy failed: " + await depRes.text());
+      const dep: DeployResult = await depRes.json();
+      setDeployResult(dep);
       setPhase("done");
+
+      // Save to local history
+      const hist: string[] = JSON.parse(localStorage.getItem("zkloud_workspaces") ?? "[]");
+      localStorage.setItem("zkloud_workspaces", JSON.stringify([ws.container_id, ...hist].slice(0, 20)));
     } catch (e) {
       setPhase("error");
       setErrMsg(String(e));
     }
   }
 
-  const pipelineId = "pl_" + Math.random().toString(36).slice(2, 14);
+  function connectGitHub() {
+    if (!address) { alert("Connect your wallet first"); return; }
+    window.location.href = `${API}/auth/github?wallet=${address}`;
+  }
+
+  // ── stage labels ─────────────────────────────────────────────────────────────
+
+  const stageStatus = (s: Phase[]) =>
+    s.includes(phase) ? "active" : (
+      phase === "done" || (s[0] === "repo" && ["scanning","pick","vm","deploying","done"].includes(phase)) ||
+      (s[0] === "pick" && ["vm","deploying","done"].includes(phase)) ||
+      (s[0] === "vm" && ["deploying","done"].includes(phase))
+        ? "done" : "pending"
+    );
+
+  const stages = [
+    { id: ["repo", "scanning"] as Phase[], label: "Connect Repository", sub: githubConnected ? "GitHub OAuth" : repoURL ? repoURL.split("/").slice(-1)[0] : "Link source code" },
+    { id: ["pick"] as Phase[], label: "Detect Stack", sub: scan ? `${scan.options.length} option${scan.options.length !== 1 ? "s" : ""} found` : "Auto-detect framework" },
+    { id: ["vm"] as Phase[], label: "Configure VM", sub: `${ram} · ${cpu}` },
+    { id: ["deploying", "done"] as Phase[], label: "Deploy", sub: deployResult ? deployResult.framework : "Encrypted workspace" },
+  ];
 
   return (
-    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div style={{ display: "flex", height: "100vh", background: "#0A0A0A", fontFamily: "Inter, sans-serif", color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
-      <main className="flex-1 flex flex-col overflow-y-auto">
-        <div className="p-8">
-          {/* Page header */}
-          <header className="flex flex-wrap justify-between items-start gap-4 mb-6">
-            <div className="flex flex-col gap-1">
-              <p className="text-3xl font-black leading-tight tracking-tight" style={{ color: "#F9FAFB" }}>New Deployment</p>
-              <p className="text-sm font-mono" style={{ color: "#6B7280" }}>
-                ID: {pipelineId}
+      <main style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
+        <div style={{ padding: "32px" }}>
+
+          {/* Header */}
+          <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16, marginBottom: 24 }}>
+            <div>
+              <p style={{ fontSize: 28, fontWeight: 900, color: "#F9FAFB", lineHeight: 1.2 }}>New Deployment</p>
+              <p style={{ fontSize: 13, fontFamily: "monospace", color: "#6B7280", marginTop: 4 }}>
+                Encrypted workspace · blockchain-gated
               </p>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href="/"
-                className="flex items-center justify-center rounded-lg h-10 px-4 text-sm font-bold"
-                style={{ background: "#2A2A2D", color: "#E5E7EB" }}
-              >
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <Link href="/" style={{ display: "flex", alignItems: "center", height: 40, padding: "0 16px", borderRadius: 8, background: "#2A2A2D", color: "#E5E7EB", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
                 ← Dashboard
               </Link>
-              <button
-                onClick={handleDeploy}
-                disabled={!selectedProjectId || phase === "deploying"}
-                className="flex items-center justify-center rounded-lg h-10 px-4 text-sm font-black disabled:opacity-30"
-                style={{ background: "#7c45ff", color: "#000" }}
-              >
-                {phase === "deploying" ? (
-                  <svg className="animate-spin mr-2" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/>
-                  </svg>
-                ) : null}
-                {phase === "deploying" ? "Deploying\u2026" : "Deploy Pipeline"}
-              </button>
-              {phase === "idle" && selectedProjectId && (
-                <button
-                  onClick={() => { setPhase("idle"); setSelectedProjectId(null); }}
-                  className="flex items-center justify-center rounded-lg h-10 px-4 text-sm font-bold"
-                  style={{ background: "#DC3545", color: "#fff" }}
-                >
-                  Abort
-                </button>
-              )}
             </div>
           </header>
 
           {/* Stat cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
             {[
-              { label: "Overall Status", value: phase === "deploying" ? "Running" : phase === "done" ? "Succeeded" : phase === "error" ? "Failed" : "Ready", accent: phase === "deploying" },
-              { label: "Repository", value: githubConnected ? githubRepo.split("/").slice(-1)[0] || "—" : "Not connected" },
-              { label: "VM Config", value: vmConfig.ram + " / " + vmConfig.cpu },
-              { label: "Triggered By", value: teamName },
-            ].map((s) => (
-              <div key={s.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
-                <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{s.label}</p>
-                <p className="text-xl font-bold leading-tight flex items-center gap-2 truncate" style={{ color: s.accent ? "#7c45ff" : "#F9FAFB" }}>
-                  {s.accent && (
-                    <svg className="animate-spin shrink-0" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/>
-                    </svg>
-                  )}
-                  {s.value}
-                </p>
+              { label: "Status", value: phase === "deploying" ? "Deploying…" : phase === "done" ? "Live" : phase === "error" ? "Failed" : phase === "scanning" ? "Scanning…" : "Ready", accent: ["deploying","scanning"].includes(phase) },
+              { label: "Repository", value: repoURL ? repoURL.split("/").slice(-1)[0] || repoURL : "—" },
+              { label: "Framework", value: scan?.options[selectedOption]?.framework ?? "—" },
+              { label: "VM", value: `${ram} / ${cpu}` },
+            ].map((c) => (
+              <div key={c.label} style={{ background: "#161618", border: "1px solid #2C2C2E", borderRadius: 12, padding: 16 }}>
+                <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 6 }}>{c.label}</p>
+                <p style={{ fontSize: 18, fontWeight: 700, color: c.accent ? "#7c45ff" : "#F9FAFB" }}>{c.value}</p>
               </div>
             ))}
           </div>
 
           {/* Main grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 32 }}>
 
-            {/* Left: Pipeline stages */}
-            <div className="lg:col-span-1 flex flex-col gap-4">
-              <h2 className="text-xl font-bold" style={{ color: "#F9FAFB" }}>Pipeline Stages</h2>
-
-              {/* Stage 1: Connect GitHub */}
-              <div
-                className="grid grid-cols-[auto_1fr] gap-x-4"
-              >
-                {/* Stage: Connect GitHub */}
-                <div className="flex flex-col items-center gap-1">
-                  <div
-                    className="flex items-center justify-center rounded-full p-1.5"
-                    style={{
-                      color: githubConnected ? "#28A745" : "#7c45ff",
-                      background: githubConnected ? "rgba(40,167,69,0.15)" : "rgba(124,69,255,0.15)",
-                    }}
-                  >
-                    {githubConnected ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    ) : (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
-                    )}
-                  </div>
-                  <div className="w-0.5 grow" style={{ background: "#2C2C2E" }} />
-                </div>
-                <div className="flex flex-col pb-5 pl-1"
-                  style={!githubConnected ? { background: "#161618", border: "1px solid #7c45ff", borderRadius: "8px", padding: "12px 14px", marginBottom: "12px" } : {}}
-                >
-                  <p className="text-sm font-bold" style={{ color: !githubConnected ? "#7c45ff" : "#F3F4F6" }}>
-                    Connect GitHub Repository
-                  </p>
-                  <p className="text-xs mt-0.5" style={{ color: githubConnected ? "#28A745" : "#9CA3AF" }}>
-                    {githubConnected ? `Connected: ${githubRepo}` : "Link your source code"}
-                  </p>
-                </div>
-
-                {/* Stage: Select Project */}
-                <div className="flex flex-col items-center gap-1">
-                  {githubConnected ? (
-                    <div className="flex items-center justify-center rounded-full p-1.5" style={{ color: selectedProjectId ? "#28A745" : "#7c45ff", background: selectedProjectId ? "rgba(40,167,69,0.15)" : "rgba(124,69,255,0.15)" }}>
-                      {selectedProjectId
-                        ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
-                      }
+            {/* Left: stages */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: "#F9FAFB", marginBottom: 16 }}>Pipeline Stages</h2>
+              {stages.map((s, i) => {
+                const st = stageStatus(s.id);
+                const dotColor = st === "done" ? "#28A745" : st === "active" ? "#7c45ff" : "#4B5563";
+                const bgColor = st === "active" ? "rgba(124,69,255,0.08)" : "transparent";
+                const border = st === "active" ? "1px solid #7c45ff33" : "1px solid transparent";
+                return (
+                  <div key={i} style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "0 16px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        background: st === "active" ? "rgba(124,69,255,0.15)" : st === "done" ? "rgba(40,167,69,0.15)" : "#1C1C1E",
+                      }}>
+                        {st === "done"
+                          ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                          : st === "active"
+                          ? <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#7c45ff" }} />
+                          : <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#4B5563" }} />
+                        }
+                      </div>
+                      {i < stages.length - 1 && <div style={{ width: 1, flex: 1, background: "#2C2C2E", minHeight: 24 }} />}
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-center rounded-full p-1.5" style={{ color: "#6B7280", background: "#2A2A2D" }}>
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="1"/></svg>
+                    <div style={{ paddingBottom: 20, paddingLeft: 4, background: bgColor, border, borderRadius: 8, padding: st === "active" ? "10px 12px" : "4px 0", marginBottom: st === "active" ? 4 : 0 }}>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: st === "active" ? "#7c45ff" : st === "done" ? "#F3F4F6" : "#4B5563" }}>
+                        {s.label}
+                      </p>
+                      <p style={{ fontSize: 11, color: st === "done" ? "#28A745" : "#6B7280", marginTop: 2 }}>{s.sub}</p>
                     </div>
-                  )}
-                  <div className="w-0.5 grow" style={{ background: "#2C2C2E" }} />
-                </div>
-                <div className="flex flex-col pb-5 pl-1">
-                  <p className="text-sm font-medium" style={{ color: githubConnected ? "#F3F4F6" : "#6B7280" }}>Select Project</p>
-                  <p className="text-xs mt-0.5" style={{ color: selectedProjectId ? "#28A745" : "#9CA3AF" }}>
-                    {selectedProjectId ? truncate(selectedProject?.description ?? "", 36) : "Choose from your sessions"}
-                  </p>
-                </div>
-
-                {/* Stage: Configure VM */}
-                <div className="flex flex-col items-center gap-1">
-                  <div className="flex items-center justify-center rounded-full p-1.5" style={{
-                    color: selectedProjectId ? "#28A745" : "#6B7280",
-                    background: selectedProjectId ? "rgba(40,167,69,0.15)" : "#2A2A2D",
-                  }}>
-                    {selectedProjectId
-                      ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="1"/></svg>
-                    }
                   </div>
-                </div>
-                <div className="flex flex-col pl-1">
-                  <p className="text-sm font-medium" style={{ color: selectedProjectId ? "#F3F4F6" : "#6B7280" }}>Configure VM</p>
-                  <p className="text-xs mt-0.5" style={{ color: "#9CA3AF" }}>{vmConfig.ram} / {vmConfig.cpu}</p>
-                </div>
-              </div>
+                );
+              })}
             </div>
 
-            {/* Right: Config panel with tabs */}
-            <div className="lg:col-span-2 rounded-xl overflow-hidden flex flex-col" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
-              <div className="flex" style={{ borderBottom: "1px solid #2C2C2E" }}>
-                <button className="px-4 py-3 text-white text-sm font-semibold" style={{ borderBottom: "2px solid #7c45ff" }}>Config</button>
-                <button className="px-4 py-3 text-sm font-medium" style={{ color: "#6B7280" }}>Details</button>
-                <button className="px-4 py-3 text-sm font-medium" style={{ color: "#6B7280" }}>Audit Trail</button>
-              </div>
+            {/* Right: active panel */}
+            <div style={{ background: "#161618", border: "1px solid #2C2C2E", borderRadius: 12, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-              <div className="p-6 flex flex-col gap-6 flex-1 overflow-y-auto">
-
-                {/* GitHub Repository */}
-                <div className="rounded-xl p-5" style={{ background: "#0A0A0A", border: "1px solid #2C2C2E" }}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: "#1C1C1E" }}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E5E7EB" strokeWidth="1.8">
-                        <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/>
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold" style={{ color: "#F9FAFB" }}>GitHub Repository</p>
-                      <p className="text-xs" style={{ color: "#6B7280" }}>Connect your source code repository</p>
-                    </div>
-                    {githubConnected && (
-                      <span className="ml-auto text-xs px-2 py-0.5 rounded-full font-medium" style={{ color: "#28A745", background: "rgba(40,167,69,0.12)", border: "1px solid rgba(40,167,69,0.25)" }}>
-                        Connected
-                      </span>
-                    )}
+              {/* ── Stage 1: Connect repo ── */}
+              {(phase === "repo" || phase === "scanning") && (
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Connect Repository</p>
+                    <p style={{ fontSize: 12, color: "#6B7280" }}>Paste a public GitHub URL or authorize for private repos</p>
                   </div>
 
-                  {!githubConnected ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="https://github.com/owner/repo"
-                          value={repoInput}
-                          onChange={(e) => setRepoInput(e.target.value)}
-                          className="flex-1 text-sm px-3 py-2.5 rounded-lg outline-none"
-                          style={{
-                            background: "#161618",
-                            border: "1px solid #2C2C2E",
-                            color: "#E5E7EB",
-                          }}
-                          onFocus={(e) => (e.currentTarget.style.borderColor = "#7c45ff")}
-                          onBlur={(e) => (e.currentTarget.style.borderColor = "#2C2C2E")}
-                        />
-                        <button
-                          onClick={() => { if (repoInput.trim()) { setGithubRepo(repoInput.trim()); setGithubConnected(true); } }}
-                          className="px-4 py-2.5 rounded-lg text-sm font-bold whitespace-nowrap"
-                          style={{ background: "#7c45ff", color: "#000" }}
-                        >
-                          Connect
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-px" style={{ background: "#2C2C2E" }} />
-                        <span className="text-xs" style={{ color: "#4B5563" }}>or</span>
-                        <div className="flex-1 h-px" style={{ background: "#2C2C2E" }} />
-                      </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      type="text"
+                      placeholder="https://github.com/owner/repo"
+                      value={repoURL}
+                      onChange={(e) => setRepoURL(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleScan()}
+                      style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #2C2C2E", background: "#0A0A0A", color: "#E5E7EB", fontSize: 13, outline: "none" }}
+                    />
+                    <button
+                      onClick={handleScan}
+                      disabled={!repoURL.trim() || phase === "scanning"}
+                      style={{ padding: "10px 20px", borderRadius: 8, background: "#7c45ff", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: !repoURL.trim() ? 0.4 : 1 }}
+                    >
+                      {phase === "scanning" ? "Scanning…" : "Scan →"}
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, height: 1, background: "#2C2C2E" }} />
+                    <span style={{ fontSize: 11, color: "#4B5563" }}>or connect private repos</span>
+                    <div style={{ flex: 1, height: 1, background: "#2C2C2E" }} />
+                  </div>
+
+                  <button
+                    onClick={connectGitHub}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", borderRadius: 8, background: githubConnected ? "rgba(40,167,69,0.1)" : "#21262D", border: `1px solid ${githubConnected ? "rgba(40,167,69,0.3)" : "#30363D"}`, color: githubConnected ? "#28A745" : "#E5E7EB", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
+                    </svg>
+                    {githubConnected ? "GitHub Connected ✓" : "Authorize with GitHub"}
+                  </button>
+                </div>
+              )}
+
+              {/* ── Stage 2: Pick option ── */}
+              {phase === "pick" && scan && (
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Detected Stack</p>
+                    <p style={{ fontSize: 12, color: "#6B7280" }}>Select what to deploy from <span style={{ fontFamily: "monospace" }}>{scan.repo_url.split("/").slice(-1)[0]}</span></p>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {scan.options.map((opt, i) => (
                       <button
-                        className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-medium"
-                        style={{ background: "#21262D", color: "#E5E7EB", border: "1px solid #30363D" }}
-                        onClick={() => {
-                          const demoRepo = "https://github.com/demo/my-app";
-                          setRepoInput(demoRepo);
-                          setGithubRepo(demoRepo);
-                          setGithubConnected(true);
+                        key={i}
+                        onClick={() => setSelectedOption(i)}
+                        style={{
+                          textAlign: "left", padding: 16, borderRadius: 10,
+                          border: `1px solid ${selectedOption === i ? "#7c45ff" : "#2C2C2E"}`,
+                          background: selectedOption === i ? "rgba(124,69,255,0.07)" : "#0A0A0A",
+                          cursor: "pointer",
                         }}
                       >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
-                        </svg>
-                        Authorize with GitHub
+                        <FrameworkBadge opt={opt} />
                       </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between p-3 rounded-lg" style={{ background: "#161618", border: "1px solid rgba(40,167,69,0.2)" }}>
-                      <div className="flex items-center gap-2 min-w-0">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                        <span className="text-sm font-mono truncate" style={{ color: "#9CA3AF" }}>{githubRepo}</span>
+                    ))}
+                  </div>
+
+                  {/* Env vars */}
+                  {Object.keys(envVars).length > 0 && (
+                    <div>
+                      <p style={{ fontSize: 12, fontWeight: 600, color: "#9CA3AF", marginBottom: 8 }}>Environment Variables</p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {Object.keys(envVars).map((k) => (
+                          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontFamily: "monospace", color: "#6B7280", minWidth: 140 }}>{k}</span>
+                            <input
+                              type="text"
+                              placeholder="value"
+                              value={envVars[k]}
+                              onChange={(e) => setEnvVars((prev) => ({ ...prev, [k]: e.target.value }))}
+                              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid #2C2C2E", background: "#0A0A0A", color: "#E5E7EB", fontSize: 12, outline: "none", fontFamily: "monospace" }}
+                            />
+                          </div>
+                        ))}
                       </div>
-                      <button
-                        onClick={() => { setGithubConnected(false); setRepoInput(""); setGithubRepo(""); }}
-                        className="text-xs ml-3 shrink-0"
-                        style={{ color: "#6B7280" }}
-                      >
-                        Disconnect
-                      </button>
                     </div>
                   )}
-                </div>
 
-                {/* Project selector */}
-                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #2C2C2E" }}>
-                  <div className="px-5 py-3" style={{ borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}>
-                    <p className="text-xs font-mono font-semibold uppercase tracking-widest" style={{ color: "#6B7280" }}>SELECT PROJECT</p>
+                  <button
+                    onClick={() => setPhase("vm")}
+                    style={{ alignSelf: "flex-end", padding: "10px 24px", borderRadius: 8, background: "#7c45ff", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer" }}
+                  >
+                    Configure VM →
+                  </button>
+                </div>
+              )}
+
+              {/* ── Stage 3: VM config ── */}
+              {phase === "vm" && (
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
+                  <div>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Configure Workspace</p>
+                    <p style={{ fontSize: 12, color: "#6B7280" }}>LUKS-encrypted VM — your files are AES-256 at rest</p>
                   </div>
-                  <div className="py-1">
-                    {projects.map((project) => {
-                      const sm = getSm(project.status ?? "");
-                      const isSelected = project.id === selectedProjectId;
-                      return (
-                        <button
-                          key={project.id}
-                          onClick={() => setSelectedProjectId(project.id)}
-                          className="w-full text-left px-5 py-3 flex items-center gap-3 transition-all"
-                          style={{
-                            background: isSelected ? "rgba(124,69,255,0.06)" : "transparent",
-                            borderLeft: isSelected ? "2px solid #7c45ff" : "2px solid transparent",
-                          }}
-                        >
-                          <span className="shrink-0 w-1.5 h-1.5 rounded-full" style={{ background: sm.dot }} />
-                          <span className="text-sm flex-1 truncate" style={{ color: isSelected ? "#E5E7EB" : "#6B7280" }}>
-                            {truncate(project.description ?? project.name, 55)}
-                          </span>
-                          <span className="text-xs px-2 py-0.5 rounded shrink-0" style={{ color: sm.text, background: sm.bg }}>
-                            {project.status ?? "unknown"}
-                          </span>
-                        </button>
-                      );
-                    })}
-                    {projects.length === 0 && (
-                      <p className="px-5 py-4 text-sm" style={{ color: "#4B5563" }}>No projects found.</p>
-                    )}
+
+                  <div>
+                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>Memory</p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                      {Object.keys(RAM_MB).map((r) => (
+                        <button key={r} onClick={() => setRam(r)} style={{ padding: "8px 0", borderRadius: 8, border: `1px solid ${ram === r ? "#7c45ff" : "#2C2C2E"}`, background: ram === r ? "rgba(124,69,255,0.1)" : "transparent", color: ram === r ? "#7c45ff" : "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{r}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>CPU</p>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                      {Object.keys(CPU_CORES).map((c) => (
+                        <button key={c} onClick={() => setCpu(c)} style={{ padding: "8px 0", borderRadius: 8, border: `1px solid ${cpu === c ? "#7c45ff" : "#2C2C2E"}`, background: cpu === c ? "rgba(124,69,255,0.1)" : "transparent", color: cpu === c ? "#7c45ff" : "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{c}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 6 }}>Session ID <span style={{ color: "#4B5563" }}>(optional — gates vault key via EAS attestation)</span></p>
+                    <input
+                      type="text"
+                      placeholder="sess-..."
+                      value={sessionId}
+                      onChange={(e) => setSessionId(e.target.value)}
+                      style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #2C2C2E", background: "#0A0A0A", color: "#E5E7EB", fontSize: 12, fontFamily: "monospace", outline: "none", boxSizing: "border-box" }}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid #2C2C2E" }}>
+                    <p style={{ fontSize: 12, fontFamily: "monospace", color: "#6B7280" }}>
+                      {ram} · {cpu} · ~${((RAM_MB[ram] / 1024) * 0.02 + CPU_CORES[cpu] * 0.01).toFixed(2)}/hr
+                    </p>
+                    <button
+                      onClick={handleDeploy}
+                      style={{ padding: "10px 24px", borderRadius: 8, background: "#7c45ff", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer" }}
+                    >
+                      Deploy 🚀
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* VM Config */}
-                <div className="rounded-xl overflow-hidden" style={{ border: "1px solid #2C2C2E" }}>
-                  <div className="px-5 py-3" style={{ borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}>
-                    <p className="text-xs font-mono font-semibold uppercase tracking-widest" style={{ color: "#6B7280" }}>VM CONFIGURATION</p>
+              {/* ── Stage 4: Deploying ── */}
+              {phase === "deploying" && (
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB" }}>Deploying…</p>
+                  {[
+                    { done: !!workspace, label: "Allocating encrypted workspace" },
+                    { done: !!deployResult, label: `Cloning ${repoURL.split("/").slice(-1)[0]}` },
+                    { done: !!deployResult, label: `Installing dependencies & starting ${scan?.options[selectedOption]?.framework}` },
+                  ].map((s, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      {s.done
+                        ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        : <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+                      }
+                      <span style={{ fontSize: 13, color: s.done ? "#9CA3AF" : "#E5E7EB" }}>{s.label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── Done ── */}
+              {phase === "done" && deployResult && workspace && (
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#28A745" }}>Deployed Successfully</p>
                   </div>
-                  <div className="p-5 flex flex-col gap-5">
-                    <div>
-                      <p className="text-sm font-medium mb-3" style={{ color: "#9CA3AF" }}>Memory</p>
-                      <div className="grid grid-cols-4 gap-2">
-                        {RAM_OPTIONS.map((opt) => (
-                          <button
-                            key={opt}
-                            onClick={() => setVmConfig((c) => ({ ...c, ram: opt }))}
-                            className="py-2 text-sm font-medium rounded-lg transition-all"
-                            style={{
-                              borderRadius: "8px",
-                              border: vmConfig.ram === opt ? "1px solid #7c45ff" : "1px solid #2C2C2E",
-                              background: vmConfig.ram === opt ? "rgba(124,69,255,0.1)" : "transparent",
-                              color: vmConfig.ram === opt ? "#7c45ff" : "#6B7280",
-                            }}
-                          >
-                            {opt}
-                          </button>
-                        ))}
+
+                  <div style={{ background: "#0A0A0A", border: "1px solid #2C2C2E", borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {[
+                      { label: "Framework", value: deployResult.framework },
+                      { label: "Container", value: deployResult.container_id },
+                      { label: "App URL", value: deployResult.app_url, link: true },
+                      { label: "Encrypted at", value: workspace.storage_path, mono: true },
+                    ].map((r) => (
+                      <div key={r.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>{r.label}</span>
+                        {r.link
+                          ? <a href={r.value} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontFamily: "monospace", color: "#7c45ff" }}>{r.value}</a>
+                          : <span style={{ fontSize: 12, fontFamily: r.mono ? "monospace" : undefined, color: "#E5E7EB" }}>{r.value}</span>
+                        }
                       </div>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium mb-3" style={{ color: "#9CA3AF" }}>CPU Cores</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {CPU_OPTIONS.map((opt) => (
-                          <button
-                            key={opt}
-                            onClick={() => setVmConfig((c) => ({ ...c, cpu: opt }))}
-                            className="py-2 text-sm font-medium rounded-lg transition-all"
-                            style={{
-                              borderRadius: "8px",
-                              border: vmConfig.cpu === opt ? "1px solid #7c45ff" : "1px solid #2C2C2E",
-                              background: vmConfig.cpu === opt ? "rgba(124,69,255,0.1)" : "transparent",
-                              color: vmConfig.cpu === opt ? "#7c45ff" : "#6B7280",
-                            }}
-                          >
-                            {opt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="pt-3 flex justify-between" style={{ borderTop: "1px solid #2C2C2E" }}>
-                      <p className="text-xs font-mono" style={{ color: "#6B7280" }}>Selected: {vmConfig.ram} · {vmConfig.cpu}</p>
-                      <p className="text-xs font-mono" style={{ color: "#4B5563" }}>~$0.08/hr</p>
-                    </div>
+                    ))}
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <Link
+                      href={`/workspaces/${deployResult.container_id}`}
+                      style={{ flex: 1, textAlign: "center", padding: "10px 16px", borderRadius: 8, background: "#7c45ff", color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none" }}
+                    >
+                      Open Terminal →
+                    </Link>
+                    <button
+                      onClick={() => { setPhase("repo"); setScan(null); setWorkspace(null); setDeployResult(null); setRepoURL(""); }}
+                      style={{ padding: "10px 16px", borderRadius: 8, background: "#2A2A2D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}
+                    >
+                      Deploy Another
+                    </button>
                   </div>
                 </div>
+              )}
 
-                {/* Status banners */}
-                {phase === "done" && (
-                  <div className="flex items-start gap-3 px-5 py-4 rounded-xl" style={{ background: "rgba(40,167,69,0.06)", border: "1px solid rgba(40,167,69,0.2)" }}>
-                    <span className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ background: "#28A745" }} />
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: "#28A745" }}>Deployment initiated</p>
-                      <p className="text-xs mt-0.5" style={{ color: "#6B7280" }}>
-                        Session ID: <span className="font-mono">{sessionId?.slice(0, 16)}…</span> — your container is spinning up.
-                      </p>
-                    </div>
-                  </div>
-                )}
-                {phase === "error" && (
-                  <div className="flex items-start gap-3 px-5 py-4 rounded-xl" style={{ background: "rgba(220,53,69,0.06)", border: "1px solid rgba(220,53,69,0.2)" }}>
-                    <span className="w-2 h-2 rounded-full mt-0.5 shrink-0" style={{ background: "#DC3545" }} />
-                    <div>
-                      <p className="text-sm font-semibold" style={{ color: "#DC3545" }}>Deployment failed</p>
-                      <p className="text-xs mt-0.5 font-mono" style={{ color: "#6B7280" }}>{errMsg}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* ── Error ── */}
+              {phase === "error" && (
+                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: "#DC3545" }}>Something went wrong</p>
+                  <pre style={{ fontSize: 11, fontFamily: "monospace", color: "#6B7280", whiteSpace: "pre-wrap", background: "#0A0A0A", border: "1px solid #2C2C2E", borderRadius: 8, padding: 12 }}>{errMsg}</pre>
+                  <button onClick={() => setPhase("repo")} style={{ alignSelf: "flex-start", padding: "8px 16px", borderRadius: 8, background: "#2A2A2D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>
+                    ← Try again
+                  </button>
+                </div>
+              )}
+
             </div>
           </div>
         </div>
