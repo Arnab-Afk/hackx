@@ -1,0 +1,4 @@
+node_modules/
+encrypted.json
+.env
+.env.runtime

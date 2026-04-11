@@ -1,0 +1,8 @@
+#!/bin/sh
+echo "[server] Running from LUKS encrypted filesystem!"
+echo "[server] Files in my encrypted home:"
+ls /private/
+echo "[server] Reading secrets..."
+cat /private/secrets.txt 2>/dev/null || echo "(no secrets file)"
+echo "[server] Listening on :8081 (simulated)..."
+tail -f /dev/null

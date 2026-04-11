@@ -347,6 +347,45 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 		id := stringField(input, "container_id")
 		return nil, s.mgr.Destroy(ctx, id)
 
+	case "clone_repo":
+		id := stringField(input, "container_id")
+		url := stringField(input, "github_url")
+		dir := stringField(input, "directory")
+		s.emit(Event{Type: "message", Message: fmt.Sprintf("Cloning %s into container %s ...", url, id)})
+		out, err := s.mgr.CloneRepo(ctx, id, url, dir)
+		return map[string]string{"output": out}, err
+
+	case "run_command":
+		id := stringField(input, "container_id")
+		cmd := stringField(input, "command")
+		workDir := stringField(input, "work_dir")
+		if workDir == "" {
+			workDir = "/app"
+		}
+		env := mapField(input, "env")
+		s.emit(Event{Type: "message", Message: fmt.Sprintf("Running: %s", cmd)})
+		out, err := s.mgr.RunCommand(ctx, id, cmd, workDir, env)
+		return map[string]string{"output": out}, err
+
+	case "start_process":
+		id := stringField(input, "container_id")
+		cmd := stringField(input, "command")
+		workDir := stringField(input, "work_dir")
+		if workDir == "" {
+			workDir = "/app"
+		}
+		env := mapField(input, "env")
+		s.emit(Event{Type: "message", Message: fmt.Sprintf("Starting process: %s", cmd)})
+		out, err := s.mgr.StartProcess(ctx, id, cmd, workDir, env)
+		return map[string]string{"output": out}, err
+
+	case "write_file":
+		id := stringField(input, "container_id")
+		path := stringField(input, "path")
+		content := stringField(input, "content")
+		s.emit(Event{Type: "message", Message: fmt.Sprintf("Writing %s", path)})
+		return map[string]string{"path": path}, s.mgr.WriteFile(ctx, id, path, content)
+
 	default:
 		return nil, fmt.Errorf("unknown tool: %s", name)
 	}
@@ -450,4 +489,19 @@ func float64Field(m map[string]any, key string, def float64) float64 {
 		return v
 	}
 	return def
+}
+
+// mapField extracts a map[string]string from a JSON-decoded map[string]any.
+func mapField(m map[string]any, key string) map[string]string {
+	out := make(map[string]string)
+	raw, ok := m[key].(map[string]any)
+	if !ok {
+		return out
+	}
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
 }

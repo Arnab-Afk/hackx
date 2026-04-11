@@ -135,25 +135,98 @@ var toolDefinitions = []map[string]any{
 			"required": []string{"container_id"},
 		},
 	},
+	{
+		"name":        "clone_repo",
+		"description": "Clone a GitHub repository into a running container. Always call this after create_container when deploying a repo. git is installed automatically if missing.",
+		"input_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"container_id": map[string]any{"type": "string", "description": "Container ID returned by create_container"},
+				"github_url":   map[string]any{"type": "string", "description": "Full GitHub repository URL, e.g. https://github.com/user/repo"},
+				"directory":    map[string]any{"type": "string", "description": "Target directory inside the container (default: /app)"},
+			},
+			"required": []string{"container_id", "github_url"},
+		},
+	},
+	{
+		"name":        "run_command",
+		"description": "Run a shell command inside a container and return its output. Use for build steps: npm install, pip install -r requirements.txt, npm run build, go build, etc.",
+		"input_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"container_id": map[string]any{"type": "string", "description": "Container ID"},
+				"command":      map[string]any{"type": "string", "description": "Shell command to run, e.g. 'npm install' or 'pip install -r requirements.txt'"},
+				"work_dir":     map[string]any{"type": "string", "description": "Working directory inside the container (default: /app)"},
+				"env":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "Environment variables to set for this command"},
+			},
+			"required": []string{"container_id", "command"},
+		},
+	},
+	{
+		"name":        "start_process",
+		"description": "Start a long-running application process in the background (npm start, python app.py, ./server, etc.). Process output goes to docker logs. Call health_check and get_logs after to verify it started.",
+		"input_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"container_id": map[string]any{"type": "string", "description": "Container ID"},
+				"command":      map[string]any{"type": "string", "description": "Start command, e.g. 'npm start' or 'python -m uvicorn app:app --host 0.0.0.0 --port 8000'"},
+				"work_dir":     map[string]any{"type": "string", "description": "Working directory (default: /app)"},
+				"env":          map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}, "description": "Environment variables (PORT, DATABASE_URL, etc.)"},
+			},
+			"required": []string{"container_id", "command"},
+		},
+	},
+	{
+		"name":        "write_file",
+		"description": "Write a text file into a container. Use for .env files, config files, or any file that needs to exist before the app starts.",
+		"input_schema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"container_id": map[string]any{"type": "string", "description": "Container ID"},
+				"path":         map[string]any{"type": "string", "description": "Absolute path inside the container, e.g. /app/.env"},
+				"content":      map[string]any{"type": "string", "description": "File content as a string"},
+			},
+			"required": []string{"container_id", "path", "content"},
+		},
+	},
 }
 
 const systemPrompt = `You are a deployment agent for zkLOUD, a decentralized compute platform.
 
-When a user provides a GitHub URL, follow this exact sequence:
+When a user provides a GitHub URL, follow this EXACT sequence:
 1. Call analyze_repo(github_url) — scans the repo and returns a deployment plan
 2. Call select_provider() — picks the cheapest active provider from the on-chain registry
 3. Call generate_deployment_plan(...) — presents the plan summary including selected provider
-4. Immediately execute the plan: create containers, install packages, configure networking
-5. Call health_check on each container before reporting success
-6. Return a summary with container IDs, cost per hour, and provider endpoint
+4. WAIT for user confirmation (the tool blocks until confirmed)
+5. After confirmation, execute the full deployment:
+   a. create_container — use the correct base image for the stack
+   b. clone_repo(container_id, github_url, "/app") — clone the source code
+   c. run_command(container_id, "<install cmd>", "/app") — install dependencies
+      • Node.js: "npm install" or "yarn install"
+      • Python: "pip install -r requirements.txt"
+      • Go: "go mod download"
+      • Java: "mvn install -DskipTests" or "gradle assemble"
+      • Rust: "cargo build --release"
+   d. (optional) write_file for .env or config files if DATABASE_URL or secrets are needed
+   e. run_command for build step if needed (npm run build, go build ./..., etc.)
+   f. start_process(container_id, "<start cmd>", "/app", env) — launch the app
+      • Node.js: "npm start" or "node dist/index.js"
+      • Python: "python app.py" or "uvicorn app:app --host 0.0.0.0 --port 8000"
+      • Go: "./app"
+      • Static: use a lightweight HTTP server (npx serve build, python -m http.server 8080)
+   g. health_check — verify the container is running
+   h. get_logs — check for startup errors
+6. configure_network if multiple containers are deployed
+7. Return a summary: container IDs, host ports, cost/hour, provider endpoint
 
 When a user describes a stack in plain text (no GitHub URL), skip step 1 and infer the plan yourself, but always call select_provider() first.
 
 Rules:
-- ONLY use the provided tools. No shell execution, no external API calls.
-- After calling generate_deployment_plan, STOP and wait. The tool will block until the user confirms via POST /sessions/:id/confirm. Once it returns with status "confirmed", proceed with container creation.
-- Always call configure_network after creating multiple containers.
+- ONLY use the provided tools. No arbitrary shell or external API calls.
+- After generate_deployment_plan, STOP and wait — do not create containers before confirmation.
 - Use setup_database for databases, not create_container.
 - RAM defaults: 2048 MB app containers, 512 MB databases.
 - CPU defaults: 1.0 app, 0.5 databases.
-- Support ANY stack — web2, web3, Python, Go, Rust, Java, etc.`
+- Always clone into /app unless the plan specifies otherwise.
+- Support ANY stack — web2, web3, Python, Go, Rust, Java, etc.
+- If a command fails, call get_logs to diagnose, fix with run_command, and retry.`

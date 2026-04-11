@@ -94,6 +94,10 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	})
 
 	r.Get("/attestations/{sessionID}", srv.getAttestation)
+
+	// Vault key gate — blockchain-gated container decryption key
+	r.Get("/vault/nonce", vaultNonce(authMgr))
+	r.Post("/vault/key", srv.vaultKey(authMgr))
 	r.Post("/teams", srv.createTeam)
 	r.Get("/teams/{teamID}", srv.getTeam)
 	r.Get("/teams/{teamID}/containers", srv.listContainers)

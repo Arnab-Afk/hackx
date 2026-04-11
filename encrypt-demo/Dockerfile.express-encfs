@@ -1,0 +1,12 @@
+FROM node:20-alpine AS base
+
+RUN apk add --no-cache cryptsetup e2fsprogs util-linux bash
+
+COPY entrypoint-express.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# App staged here — gets moved into encrypted volume at startup
+COPY express-app /app-staging/
+
+EXPOSE 3000
+ENTRYPOINT ["/entrypoint.sh"]

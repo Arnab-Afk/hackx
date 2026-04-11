@@ -1,0 +1,12 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache cryptsetup e2fsprogs util-linux bash
+
+# The entrypoint script sets up LUKS, mounts /private, copies app files in, then runs the app
+COPY entrypoint-encfs.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# App binary copied into image (will be moved to encrypted volume at startup)
+COPY app /app-staging/
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -1,10 +1,13 @@
 package container
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -334,6 +337,112 @@ func (m *Manager) ListTeamContainers(ctx context.Context, teamID string) ([]Cont
 		})
 	}
 	return containers, nil
+}
+
+// CloneRepo ensures git is present then clones a repository into the container.
+// dir defaults to /app if empty. Returns combined command output.
+func (m *Manager) CloneRepo(ctx context.Context, containerID, repoURL, dir string) (string, error) {
+	if dir == "" {
+		dir = "/app"
+	}
+	// Best-effort git install; ignore errors from already-installed or non-apt images
+	_ = m.exec(ctx, containerID, []string{"sh", "-c",
+		"which git > /dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq git)"})
+	out, err := m.execWithOutput(ctx, containerID, []string{"git", "clone", "--depth=1", repoURL, dir}, "/", nil)
+	if err != nil {
+		return out, fmt.Errorf("git clone: %w", err)
+	}
+	return out, nil
+}
+
+// RunCommand runs a shell command inside a container and returns combined stdout+stderr.
+// workDir may be empty (defaults to container's working dir).
+func (m *Manager) RunCommand(ctx context.Context, containerID, shellCmd, workDir string, env map[string]string) (string, error) {
+	var envSlice []string
+	for k, v := range env {
+		envSlice = append(envSlice, fmt.Sprintf("%s=%s", k, v))
+	}
+	return m.execWithOutput(ctx, containerID, []string{"sh", "-c", shellCmd}, workDir, envSlice)
+}
+
+// StartProcess launches a long-running process in the container and returns immediately.
+// Stdout/stderr are redirected to the container's PID-1 stdout so they appear in docker logs.
+func (m *Manager) StartProcess(ctx context.Context, containerID, shellCmd, workDir string, env map[string]string) (string, error) {
+	var envSlice []string
+	for k, v := range env {
+		envSlice = append(envSlice, fmt.Sprintf("%s=%s", k, v))
+	}
+	// Redirect output to /proc/1/fd/1 (PID 1 stdout → docker logs) and run detached
+	wrapped := fmt.Sprintf("nohup sh -c %q > /proc/1/fd/1 2>&1 &", shellCmd)
+	return m.execWithOutput(ctx, containerID, []string{"sh", "-c", wrapped}, workDir, envSlice)
+}
+
+// WriteFile writes arbitrary text content to a path inside the container.
+// Parent directories are created automatically.
+func (m *Manager) WriteFile(ctx context.Context, containerID, path, content string) error {
+	fname := filepath.Base(path)
+	dir := filepath.ToSlash(filepath.Dir(path))
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	hdr := &tar.Header{
+		Name:    fname,
+		Mode:    0644,
+		Size:    int64(len(content)),
+		ModTime: time.Now(),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return err
+	}
+	if _, err := tw.Write([]byte(content)); err != nil {
+		return err
+	}
+	tw.Close()
+
+	_, err := m.client.CopyToContainer(ctx, containerID, dockerclient.CopyToContainerOptions{
+		DestinationPath: dir,
+		Content:         &buf,
+	})
+	return err
+}
+
+// execWithOutput runs a command in a container and returns its combined stdout+stderr.
+func (m *Manager) execWithOutput(ctx context.Context, containerID string, cmd []string, workDir string, env []string) (string, error) {
+	opts := dockerclient.ExecCreateOptions{
+		Cmd:          cmd,
+		AttachStdout: true,
+		AttachStderr: true,
+		WorkingDir:   workDir,
+		Env:          env,
+	}
+	execResult, err := m.client.ExecCreate(ctx, containerID, opts)
+	if err != nil {
+		return "", fmt.Errorf("exec create: %w", err)
+	}
+
+	attachResult, err := m.client.ExecAttach(ctx, execResult.ID, dockerclient.ExecAttachOptions{})
+	if err != nil {
+		return "", fmt.Errorf("exec attach: %w", err)
+	}
+	defer attachResult.Close()
+
+	var sb strings.Builder
+	io.Copy(&sb, attachResult.Reader)
+
+	for {
+		inspect, err := m.client.ExecInspect(ctx, execResult.ID, dockerclient.ExecInspectOptions{})
+		if err != nil {
+			return sb.String(), err
+		}
+		if !inspect.Running {
+			if inspect.ExitCode != 0 {
+				return sb.String(), fmt.Errorf("exited %d: %s", inspect.ExitCode, sb.String())
+			}
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return sb.String(), nil
 }
 
 // exec runs a command in a running container and waits for completion.

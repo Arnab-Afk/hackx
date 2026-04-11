@@ -1,0 +1,16 @@
+{
+  "name": "lit-demo",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "encrypt": "node encrypt.js",
+    "decrypt": "node decrypt.js"
+  },
+  "dependencies": {
+    "@lit-protocol/auth-helpers": "^7.0.1",
+    "@lit-protocol/constants": "^7.0.1",
+    "@lit-protocol/lit-node-client": "^7.0.1",
+    "dotenv": "^16.4.5",
+    "ethers": "^6.13.0"
+  }
+}
