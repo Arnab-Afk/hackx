@@ -1,0 +1,263 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/websocket"
+	"github.com/Arnab-Afk/hackx/backend/internal/agent"
+	"github.com/Arnab-Afk/hackx/backend/internal/container"
+	"github.com/Arnab-Afk/hackx/backend/internal/store"
+)
+
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true }, // allow all origins for dev
+}
+
+type Server struct {
+	mgr    *container.Manager
+	store  *store.Store
+	apiKey string
+}
+
+func NewServer(mgr *container.Manager, s *store.Store, apiKey string) http.Handler {
+	srv := &Server{mgr: mgr, store: s, apiKey: apiKey}
+
+	r := chi.NewRouter()
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(corsMiddleware)
+
+	r.Post("/teams", srv.createTeam)
+	r.Get("/teams/{teamID}", srv.getTeam)
+	r.Get("/teams/{teamID}/containers", srv.listContainers)
+
+	r.Post("/sessions", srv.createSession)
+	r.Get("/sessions/{sessionID}", srv.getSession)
+	r.Get("/sessions/{sessionID}/stream", srv.streamSession)
+	r.Get("/sessions/{sessionID}/log", srv.getActionLog)
+
+	r.Delete("/containers/{containerID}", srv.destroyContainer)
+
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	return r
+}
+
+// POST /teams
+func (s *Server) createTeam(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name      string `json:"name"`
+		PublicKey string `json:"public_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	team := &store.Team{
+		ID:        generateID("team"),
+		Name:      req.Name,
+		PublicKey: req.PublicKey,
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := s.store.CreateTeam(r.Context(), team); err != nil {
+		http.Error(w, fmt.Sprintf("create team: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	jsonResponse(w, http.StatusCreated, team)
+}
+
+// GET /teams/:teamID
+func (s *Server) getTeam(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "teamID")
+	team, err := s.store.GetTeam(r.Context(), id)
+	if err != nil {
+		http.Error(w, "team not found", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, http.StatusOK, team)
+}
+
+// GET /teams/:teamID/containers
+func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamID")
+	containers, err := s.mgr.ListTeamContainers(r.Context(), teamID)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("list containers: %v", err), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, containers)
+}
+
+// POST /sessions
+func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TeamID string `json:"team_id"`
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" || req.Prompt == "" {
+		http.Error(w, "team_id and prompt are required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify team exists
+	if _, err := s.store.GetTeam(r.Context(), req.TeamID); err != nil {
+		http.Error(w, "team not found", http.StatusNotFound)
+		return
+	}
+
+	sess := &store.Session{
+		ID:        generateID("sess"),
+		TeamID:    req.TeamID,
+		Prompt:    req.Prompt,
+		State:     "running",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if err := s.store.CreateSession(r.Context(), sess); err != nil {
+		http.Error(w, fmt.Sprintf("create session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Run agent in background; client connects to /sessions/:id/stream to get events
+	go s.runAgentSession(sess.ID, sess.TeamID, req.Prompt)
+
+	jsonResponse(w, http.StatusCreated, sess)
+}
+
+// GET /sessions/:sessionID
+func (s *Server) getSession(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "sessionID")
+	sess, err := s.store.GetSession(r.Context(), id)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, http.StatusOK, sess)
+}
+
+// GET /sessions/:sessionID/stream — WebSocket endpoint
+func (s *Server) streamSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+
+	sess, err := s.store.GetSession(r.Context(), sessionID)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// If session is already done, just send the action log and close
+	if sess.State != "running" {
+		log, _ := s.store.GetActionLog(r.Context(), sessionID)
+		if log != nil {
+			conn.WriteJSON(map[string]any{"type": "done", "log": json.RawMessage(log.Actions)})
+		}
+		return
+	}
+
+	// Subscribe to live events from the running agent session
+	ch := sessionBus.subscribe(sessionID)
+	defer sessionBus.unsubscribe(sessionID, ch)
+
+	for {
+		select {
+		case event, ok := <-ch:
+			if !ok {
+				return
+			}
+			if err := conn.WriteJSON(event); err != nil {
+				return
+			}
+			if event.Type == "done" || event.Type == "error" {
+				return
+			}
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// GET /sessions/:sessionID/log
+func (s *Server) getActionLog(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "sessionID")
+	log, err := s.store.GetActionLog(r.Context(), id)
+	if err != nil {
+		http.Error(w, "log not found", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, http.StatusOK, log)
+}
+
+// DELETE /containers/:containerID
+func (s *Server) destroyContainer(w http.ResponseWriter, r *http.Request) {
+	containerID := chi.URLParam(r, "containerID")
+	if err := s.mgr.Destroy(r.Context(), containerID); err != nil {
+		http.Error(w, fmt.Sprintf("destroy: %v", err), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// runAgentSession runs the agent and publishes events to the session bus.
+func (s *Server) runAgentSession(sessionID, teamID, prompt string) {
+	ctx := context.Background()
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.apiKey)
+
+	// Forward events to bus
+	go func() {
+		for event := range agentSess.Events() {
+			sessionBus.publish(sessionID, event)
+		}
+	}()
+
+	err := agentSess.Run(ctx, prompt)
+
+	state := "completed"
+	if err != nil {
+		state = "failed"
+	}
+
+	// Persist results
+	_ = s.store.UpdateSessionState(ctx, sessionID, state)
+	_ = s.store.SaveActionLog(ctx, sessionID, teamID, agentSess.Actions)
+}
+
+// --- helpers ---
+
+func jsonResponse(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func generateID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}

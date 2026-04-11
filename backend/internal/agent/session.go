@@ -1,0 +1,352 @@
+package agent
+
+import (
+	"bytes"
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/Arnab-Afk/hackx/backend/internal/container"
+)
+
+// Action represents a single tool call made by the agent.
+type Action struct {
+	Index     int            `json:"index"`
+	Tool      string         `json:"tool"`
+	Input     map[string]any `json:"input"`
+	Result    any            `json:"result"`
+	Error     string         `json:"error,omitempty"`
+	Timestamp time.Time      `json:"timestamp"`
+	Hash      string         `json:"hash"`
+}
+
+// SessionState represents the lifecycle state of an agent session.
+type SessionState string
+
+const (
+	StateRunning   SessionState = "running"
+	StateCompleted SessionState = "completed"
+	StateFailed    SessionState = "failed"
+)
+
+// Event is streamed to the frontend over WebSocket.
+type Event struct {
+	Type    string `json:"type"` // "action" | "message" | "done" | "error"
+	Action  *Action `json:"action,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// Session manages one agent deployment conversation.
+type Session struct {
+	ID       string
+	TeamID   string
+	State    SessionState
+	Actions  []Action
+
+	mgr     *container.Manager
+	apiKey  string
+	events  chan Event
+}
+
+// anthropic API types (minimal)
+type anthropicMessage struct {
+	Role    string `json:"role"`
+	Content any    `json:"content"` // string or []contentBlock
+}
+
+type contentBlock struct {
+	Type      string         `json:"type"`
+	Text      string         `json:"text,omitempty"`
+	ID        string         `json:"id,omitempty"`
+	Name      string         `json:"name,omitempty"`
+	Input     map[string]any `json:"input,omitempty"`
+	ToolUseID string         `json:"tool_use_id,omitempty"`
+	Content   string         `json:"content,omitempty"`
+}
+
+type anthropicRequest struct {
+	Model     string             `json:"model"`
+	MaxTokens int                `json:"max_tokens"`
+	System    string             `json:"system"`
+	Tools     []map[string]any   `json:"tools"`
+	Messages  []anthropicMessage `json:"messages"`
+}
+
+type anthropicResponse struct {
+	ID      string         `json:"id"`
+	Type    string         `json:"type"`
+	Content []contentBlock `json:"content"`
+	Model   string         `json:"model"`
+	Usage   struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+	StopReason string `json:"stop_reason"`
+}
+
+func NewSession(id, teamID string, mgr *container.Manager, apiKey string) *Session {
+	return &Session{
+		ID:     id,
+		TeamID: teamID,
+		State:  StateRunning,
+		mgr:    mgr,
+		apiKey: apiKey,
+		events: make(chan Event, 64),
+	}
+}
+
+// Events returns a channel the caller can read events from.
+func (s *Session) Events() <-chan Event {
+	return s.events
+}
+
+// Run executes the agent loop for the given user prompt.
+// It blocks until the agent is done or the context is cancelled.
+func (s *Session) Run(ctx context.Context, userPrompt string) error {
+	messages := []anthropicMessage{
+		{Role: "user", Content: userPrompt},
+	}
+
+	for {
+		resp, err := s.callClaude(ctx, messages)
+		if err != nil {
+			s.State = StateFailed
+			s.emit(Event{Type: "error", Message: err.Error()})
+			return err
+		}
+
+		// Collect any text blocks to stream to the user
+		var assistantBlocks []contentBlock
+		for _, block := range resp.Content {
+			assistantBlocks = append(assistantBlocks, block)
+			if block.Type == "text" && block.Text != "" {
+				s.emit(Event{Type: "message", Message: block.Text})
+			}
+		}
+
+		// If Claude is done (no tool calls), we're finished
+		if resp.StopReason == "end_turn" {
+			break
+		}
+
+		// Process tool use blocks
+		var toolResults []contentBlock
+		for _, block := range resp.Content {
+			if block.Type != "tool_use" {
+				continue
+			}
+
+			result, toolErr := s.executeTool(ctx, block.Name, block.Input)
+
+			action := Action{
+				Index:     len(s.Actions),
+				Tool:      block.Name,
+				Input:     block.Input,
+				Timestamp: time.Now().UTC(),
+			}
+			if toolErr != nil {
+				action.Error = toolErr.Error()
+			} else {
+				action.Result = result
+			}
+			action.Hash = hashAction(action)
+			s.Actions = append(s.Actions, action)
+			s.emit(Event{Type: "action", Action: &action})
+
+			var resultContent string
+			if toolErr != nil {
+				resultContent = fmt.Sprintf("error: %s", toolErr.Error())
+			} else {
+				b, _ := json.Marshal(result)
+				resultContent = string(b)
+			}
+
+			toolResults = append(toolResults, contentBlock{
+				Type:      "tool_result",
+				ToolUseID: block.ID,
+				Content:   resultContent,
+			})
+		}
+
+		// Append assistant turn + tool results
+		messages = append(messages,
+			anthropicMessage{Role: "assistant", Content: assistantBlocks},
+			anthropicMessage{Role: "user", Content: toolResults},
+		)
+	}
+
+	s.State = StateCompleted
+	s.emit(Event{Type: "done", Message: "Deployment complete."})
+	return nil
+}
+
+// executeTool dispatches a named tool call to the container manager.
+func (s *Session) executeTool(ctx context.Context, name string, input map[string]any) (any, error) {
+	switch name {
+	case "create_container":
+		opts := container.CreateOpts{
+			TeamID:   s.TeamID,
+			Name:     stringField(input, "name"),
+			Image:    stringField(input, "image"),
+			RAMMb:    int64Field(input, "ram_mb", 2048),
+			CPUCores: float64Field(input, "cpu_cores", 1.0),
+		}
+		if ports, ok := input["ports"].([]any); ok {
+			for _, p := range ports {
+				if ps, ok := p.(string); ok {
+					opts.Ports = append(opts.Ports, ps)
+				}
+			}
+		}
+		return s.mgr.CreateContainer(ctx, opts)
+
+	case "install_packages":
+		id := stringField(input, "container_id")
+		mgr := container.PackageManager(stringField(input, "manager"))
+		var pkgs []string
+		if raw, ok := input["packages"].([]any); ok {
+			for _, p := range raw {
+				if ps, ok := p.(string); ok {
+					pkgs = append(pkgs, ps)
+				}
+			}
+		}
+		return nil, s.mgr.InstallPackages(ctx, id, pkgs, mgr)
+
+	case "configure_network":
+		var ids []string
+		if raw, ok := input["container_ids"].([]any); ok {
+			for _, p := range raw {
+				if ps, ok := p.(string); ok {
+					ids = append(ids, ps)
+				}
+			}
+		}
+		if err := s.mgr.CreateNetwork(ctx, s.TeamID); err != nil {
+			return nil, err
+		}
+		return nil, s.mgr.ConnectContainers(ctx, s.TeamID, ids)
+
+	case "setup_ide":
+		id := stringField(input, "container_id")
+		ideType := container.IDEType(stringField(input, "type"))
+		return nil, s.mgr.SetupIDE(ctx, id, ideType)
+
+	case "setup_database":
+		dbType := container.DBType(stringField(input, "type"))
+		version := stringField(input, "version")
+		return s.mgr.SetupDatabase(ctx, s.TeamID, dbType, version)
+
+	case "health_check":
+		id := stringField(input, "container_id")
+		return s.mgr.HealthCheck(ctx, id)
+
+	case "get_logs":
+		id := stringField(input, "container_id")
+		lines := int(int64Field(input, "lines", 50))
+		logs, err := s.mgr.GetLogs(ctx, id, lines)
+		return map[string]string{"logs": logs}, err
+
+	case "destroy_container":
+		id := stringField(input, "container_id")
+		return nil, s.mgr.Destroy(ctx, id)
+
+	default:
+		return nil, fmt.Errorf("unknown tool: %s", name)
+	}
+}
+
+func (s *Session) callClaude(ctx context.Context, messages []anthropicMessage) (*anthropicResponse, error) {
+	req := anthropicRequest{
+		Model:     "claude-sonnet-4-6",
+		MaxTokens: 4096,
+		System:    systemPrompt,
+		Tools:     toolDefinitions,
+		Messages:  messages,
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", s.apiKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	httpResp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("claude API request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	respBody, err := io.ReadAll(httpResp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	if httpResp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("claude API error %d: %s", httpResp.StatusCode, string(respBody))
+	}
+
+	var result anthropicResponse
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("parse claude response: %w", err)
+	}
+	return &result, nil
+}
+
+func (s *Session) emit(e Event) {
+	select {
+	case s.events <- e:
+	default:
+		// drop if buffer full
+	}
+}
+
+// hashAction computes a deterministic SHA-256 hash of the action for the audit log.
+func hashAction(a Action) string {
+	b, _ := json.Marshal(map[string]any{
+		"index": a.Index,
+		"tool":  a.Tool,
+		"input": a.Input,
+	})
+	return fmt.Sprintf("sha256:%x", sha256.Sum256(b))
+}
+
+// --- input helpers ---
+
+func stringField(m map[string]any, key string) string {
+	if v, ok := m[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func int64Field(m map[string]any, key string, def int64) int64 {
+	switch v := m[key].(type) {
+	case float64:
+		return int64(v)
+	case int64:
+		return v
+	case int:
+		return int64(v)
+	}
+	return def
+}
+
+func float64Field(m map[string]any, key string, def float64) float64 {
+	if v, ok := m[key].(float64); ok {
+		return v
+	}
+	return def
+}
