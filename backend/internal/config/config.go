@@ -16,7 +16,7 @@ type Config struct {
 func Load() *Config {
 	return &Config{
 		Port:        getEnv("PORT", "8080"),
-		DatabaseURL: getEnv("DATABASE_URL", "postgres://zkloud:zkloud@localhost:5432/zkloud?sslmode=disable"),
+		DatabaseURL: getEnv("DATABASE_URL", "postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable"),
 		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8080"),
 		ScanModel:   getEnv("SCAN_MODEL", "gemini-3.1-pro-high"), // heavier — used once per deploy
