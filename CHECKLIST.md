@@ -43,9 +43,9 @@ _Chain: Base Sepolia testnet_
 _Directory: `/backend`_
 _Existing: container manager, agent loop, API, store — all compile_
 
-- [ ] **2.1** Add `analyze_repo(github_url)` agent tool — clone repo, detect stack from `package.json` / `requirements.txt` / `Dockerfile` / `hardhat.config.js` / `foundry.toml`
+- [WIP: claude] **2.1** Add `analyze_repo(github_url)` agent tool — clone repo, detect stack from `package.json` / `requirements.txt` / `Dockerfile` / `hardhat.config.js` / `foundry.toml`
 - [ ] **2.2** Add `select_provider()` agent tool — query `ProviderRegistry` contract; filter by `active && stakedAmount >= MIN_STAKE`; rank by `pricePerHour ASC`, then `jobsCompleted DESC` as tiebreaker; return winning provider's `endpoint` URL for the agent to route the deployment request to
-- [ ] **2.3** Add `generate_deployment_plan()` agent tool — return structured plan (containers, ports, estimated cost) before executing, await user confirmation
+- [WIP: claude] **2.3** Add `generate_deployment_plan()` agent tool — return structured plan (containers, ports, estimated cost) before executing, await user confirmation
 - [ ] **2.4** Implement x402 payment verification middleware — verify `X-PAYMENT` header on compute request endpoints before provisioning; **this runs on every provider node**, not just the central orchestrator — node refuses to provision if payment is absent or invalid
 - [ ] **2.5** Implement EAS attestation submission after session completes — hash action log, submit to EAS schema; **provider node submits the attestation** (not the orchestrator), so the on-chain record is tied to the node's wallet address — makes providers individually accountable
 - [ ] **2.6** Add `POST /sessions/:id/confirm` endpoint — user approves the plan before agent executes
