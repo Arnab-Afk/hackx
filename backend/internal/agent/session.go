@@ -61,6 +61,7 @@ type Session struct {
 	events          chan Event
 	rpcURL          string // Base Sepolia RPC URL
 	registryAddress string // ProviderRegistry contract address
+	confirmCh       chan struct{} // closed by Confirm() to unblock plan step
 }
 
 // anthropic API types (minimal)
@@ -115,6 +116,18 @@ func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, 
 		events:          make(chan Event, 64),
 		rpcURL:          rpcURL,
 		registryAddress: registryAddress,
+		confirmCh:       make(chan struct{}),
+	}
+}
+
+// Confirm unblocks the agent if it is waiting for plan confirmation.
+// Safe to call multiple times.
+func (s *Session) Confirm() {
+	select {
+	case <-s.confirmCh:
+		// already closed — no-op
+	default:
+		close(s.confirmCh)
 	}
 }
 
@@ -242,8 +255,6 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 		return plan, nil
 
 	case "generate_deployment_plan":
-		// Surface the plan to the frontend for user confirmation.
-		// The agent waits; the user sends a /confirm message to proceed.
 		plan := map[string]any{
 			"summary":                 stringField(input, "summary"),
 			"estimated_cost_per_hour": float64Field(input, "estimated_cost_per_hour", 0),
@@ -252,7 +263,20 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 			"status":                  "awaiting_confirmation",
 		}
 		s.emit(Event{Type: "plan", Plan: plan})
-		// Return the plan as a tool result — the frontend must call /sessions/:id/confirm
+
+		// Block until the user calls POST /sessions/:id/confirm or context is cancelled.
+		// Timeout after 10 minutes so abandoned sessions don't hang forever.
+		timer := time.NewTimer(10 * time.Minute)
+		defer timer.Stop()
+		select {
+		case <-s.confirmCh:
+			plan["status"] = "confirmed"
+			s.emit(Event{Type: "message", Message: "Plan confirmed — starting deployment..."})
+		case <-timer.C:
+			return nil, fmt.Errorf("deployment plan timed out waiting for user confirmation")
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 		return plan, nil
 
 	case "create_container":

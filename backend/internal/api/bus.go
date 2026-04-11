@@ -14,6 +14,33 @@ type eventBus struct {
 
 var sessionBus = &eventBus{subs: make(map[string][]chan agent.Event)}
 
+// sessionRegistry maps session IDs to live agent sessions so confirm signals can be delivered.
+type sessionRegistryT struct {
+	mu       sync.RWMutex
+	sessions map[string]*agent.Session
+}
+
+var sessionRegistry = &sessionRegistryT{sessions: make(map[string]*agent.Session)}
+
+func (r *sessionRegistryT) register(id string, s *agent.Session) {
+	r.mu.Lock()
+	r.sessions[id] = s
+	r.mu.Unlock()
+}
+
+func (r *sessionRegistryT) deregister(id string) {
+	r.mu.Lock()
+	delete(r.sessions, id)
+	r.mu.Unlock()
+}
+
+func (r *sessionRegistryT) get(id string) (*agent.Session, bool) {
+	r.mu.RLock()
+	s, ok := r.sessions[id]
+	r.mu.RUnlock()
+	return s, ok
+}
+
 func (b *eventBus) subscribe(sessionID string) chan agent.Event {
 	ch := make(chan agent.Event, 64)
 	b.mu.Lock()

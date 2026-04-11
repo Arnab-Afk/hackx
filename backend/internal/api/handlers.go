@@ -112,6 +112,7 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 
 	r.With(computeMiddleware).Post("/sessions", srv.createSession)
 	r.Get("/sessions/{sessionID}", srv.getSession)
+	r.Post("/sessions/{sessionID}/confirm", srv.confirmSession)
 	r.Get("/sessions/{sessionID}/stream", srv.streamSession)
 	r.Get("/sessions/{sessionID}/log", srv.getActionLog)
 
@@ -220,6 +221,30 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	go s.runAgentSession(sess.ID, sess.TeamID, req.Prompt, req.RepoURL)
 
 	jsonResponse(w, http.StatusCreated, sess)
+}
+
+// POST /sessions/:sessionID/confirm — user approves the deployment plan
+func (s *Server) confirmSession(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "sessionID")
+
+	sess, ok := sessionRegistry.get(id)
+	if !ok {
+		// Session may already be done or doesn't exist
+		dbSess, err := s.store.GetSession(r.Context(), id)
+		if err != nil {
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		if dbSess.State != "running" {
+			http.Error(w, fmt.Sprintf("session is already %s", dbSess.State), http.StatusConflict)
+			return
+		}
+		http.Error(w, "session not active in memory", http.StatusGone)
+		return
+	}
+
+	sess.Confirm()
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "confirmed", "session_id": id})
 }
 
 // GET /sessions/:sessionID
@@ -389,6 +414,10 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 	}
 
 	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress)
+
+	// Register so /confirm can reach this session
+	sessionRegistry.register(sessionID, agentSess)
+	defer sessionRegistry.deregister(sessionID)
 
 	// Forward events to bus
 	go func() {

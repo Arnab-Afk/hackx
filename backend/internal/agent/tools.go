@@ -151,7 +151,7 @@ When a user describes a stack in plain text (no GitHub URL), skip step 1 and inf
 
 Rules:
 - ONLY use the provided tools. No shell execution, no external API calls.
-- Do NOT wait for user confirmation — proceed automatically after generate_deployment_plan.
+- After calling generate_deployment_plan, STOP and wait. The tool will block until the user confirms via POST /sessions/:id/confirm. Once it returns with status "confirmed", proceed with container creation.
 - Always call configure_network after creating multiple containers.
 - Use setup_database for databases, not create_container.
 - RAM defaults: 2048 MB app containers, 512 MB databases.

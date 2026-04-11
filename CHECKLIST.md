@@ -49,7 +49,7 @@ _Existing: container manager, agent loop, API, store — all compile_
 - [DONE] **2.3** Add `generate_deployment_plan()` agent tool — return structured plan (containers, ports, estimated cost) before executing, await user confirmation
 - [DONE] **2.4** Implement x402 payment verification middleware — verify `X-PAYMENT` header on compute request endpoints before provisioning; **this runs on every provider node**, not just the central orchestrator — node refuses to provision if payment is absent or invalid
 - [DONE] **2.5** Implement EAS attestation submission after session completes — hash action log, submit to EAS schema; **provider node submits the attestation** (not the orchestrator), so the on-chain record is tied to the node's wallet address — makes providers individually accountable
-- [ ] **2.6** Add `POST /sessions/:id/confirm` endpoint — user approves the plan before agent executes
+- [DONE] **2.6** Add `POST /sessions/:id/confirm` endpoint — user approves the plan before agent executes
 - [DONE] **2.7** Add wallet-based auth — `POST /auth/nonce`, `POST /auth/verify` (EIP-191 signature verification)
 - [DONE] **2.8** Store provider info + payment tx references in Postgres
 - [DONE] **2.9** Add `GET /attestations/:sessionId` endpoint — return EAS attestation link for a session
