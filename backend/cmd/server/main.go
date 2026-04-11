@@ -47,7 +47,7 @@ func main() {
 	log.Println("scanner ready")
 
 	// --- HTTP Server ---
-	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, cfg.AnthropicAPIKey, cfg.AgentModel)
+	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, "", cfg.AgentModel)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      handler,

@@ -19,8 +19,8 @@ func Load() *Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable"),
 		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8080"),
-		ScanModel:   getEnv("SCAN_MODEL", "gemini-3.1-pro-high"), // heavier — used once per deploy
-		AgentModel:  getEnv("AGENT_MODEL", "gemini-3-flash"),     // faster — used for tool loop
+		ScanModel:   getEnv("SCAN_MODEL", "claude-3-5-haiku-20241022"),
+		AgentModel:  getEnv("AGENT_MODEL", "claude-3-5-haiku-20241022"),
 	}
 }
 
