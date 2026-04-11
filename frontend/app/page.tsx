@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const deployments = [
   {
     name: "aws-dev-01",
@@ -88,13 +90,24 @@ export default function Home() {
           </div>
           <nav className="flex gap-6" style={{ fontSize: "13px" }}>
             {["Dashboard", "Deploy", "Verify", "Docs"].map((item, i) => (
-              <span
-                key={item}
-                className="cursor-pointer transition-colors"
-                style={{ color: i === 0 ? "#ffffff" : "#6b7280" }}
-              >
-                {item}
-              </span>
+              item === "Deploy" ? (
+                <Link
+                  key={item}
+                  href="/deploy"
+                  className="cursor-pointer transition-colors"
+                  style={{ color: "#6b7280" }}
+                >
+                  {item}
+                </Link>
+              ) : (
+                <span
+                  key={item}
+                  className="cursor-pointer transition-colors"
+                  style={{ color: i === 0 ? "#ffffff" : "#6b7280" }}
+                >
+                  {item}
+                </span>
+              )
             ))}
           </nav>
         </div>
@@ -172,12 +185,13 @@ export default function Home() {
                   e.g. React + Express + Postgres…
                 </span>
               </div>
-              <button
-                className="w-full rounded-sm py-2 font-semibold transition-opacity text-sm"
-                style={{ background: "#ffffff", color: "#1e2d3d", cursor: "pointer", fontSize: "13px" }}
+              <Link
+                href="/deploy"
+                className="w-full rounded-sm py-2 font-semibold transition-opacity text-sm text-center block"
+                style={{ background: "#ffffff", color: "#1e2d3d", fontSize: "13px" }}
               >
                 Start deploying →
-              </button>
+              </Link>
             </div>
           </div>
 
@@ -311,15 +325,16 @@ export default function Home() {
                 <h3 className="text-white font-semibold" style={{ fontSize: "14px" }}>Active Deployments</h3>
                 <p style={{ fontSize: "11px", color: "#6b7280", marginTop: "2px" }}>4 environments · 3 running</p>
               </div>
-              <button
+              <Link
+                href="/deploy"
                 className="flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-white transition-opacity"
-                style={{ background: "#5c6e8c", fontSize: "12px", cursor: "pointer" }}
+                style={{ background: "#5c6e8c", fontSize: "12px" }}
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                   <path d="M5 12h14" /><path d="M12 5v14" />
                 </svg>
                 New deployment
-              </button>
+              </Link>
             </div>
 
             {/* Table header */}
