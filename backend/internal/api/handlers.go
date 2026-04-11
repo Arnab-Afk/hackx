@@ -50,6 +50,7 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	r.Delete("/containers/{containerID}", srv.destroyContainer)
 
 	r.Post("/workspaces", srv.allocateWorkspace)
+	r.Get("/workspaces/{containerID}/status", srv.workspaceStatus)
 	r.Delete("/workspaces/{containerID}", srv.destroyWorkspace)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -259,6 +260,21 @@ func (s *Server) allocateWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[workspace] ready — container=%s ssh=localhost:%d user=%s", ws.ContainerID, ws.SSHPort, ws.Username)
 	jsonResponse(w, http.StatusCreated, ws)
+}
+
+// GET /workspaces/:containerID/status
+func (s *Server) workspaceStatus(w http.ResponseWriter, r *http.Request) {
+	containerID := chi.URLParam(r, "containerID")
+	health, err := s.mgr.HealthCheck(r.Context(), containerID)
+	if err != nil {
+		http.Error(w, "workspace not found", http.StatusNotFound)
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]any{
+		"container_id": containerID,
+		"running":      health.Running,
+		"status":       health.Status,
+	})
 }
 
 // DELETE /workspaces/:containerID

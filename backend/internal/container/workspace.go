@@ -33,6 +33,7 @@ type WorkspaceInfo struct {
 	Password    string    `json:"password"`
 	RAMMb       int64     `json:"ram_mb"`
 	CPUCores    float64   `json:"cpu_cores"`
+	Status      string    `json:"status"` // "provisioning" | "ready" | "failed"
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -64,8 +65,19 @@ echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
 echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
 echo 'Port %d' >> /etc/ssh/sshd_config
 ssh-keygen -A -q
+cat > /etc/motd << 'EOF'
+
+  zkLOUD Workspace
+  ----------------
+  RAM:  %d MB (enforced via cgroups)
+  CPUs: %.1f cores (enforced via cgroups)
+
+  Note: system tools (btop/free/nproc) show host totals.
+  Your actual limits are enforced by the kernel.
+
+EOF
 exec /usr/sbin/sshd -D
-`, username, username, password, username, username, sshPort)
+`, username, username, password, username, username, sshPort, cfg.RAMMb, cfg.CPUCores)
 
 	// Pull image (no-op if already cached).
 	pull, err := m.client.ImagePull(ctx, workspaceImage, dockerclient.ImagePullOptions{})
@@ -105,14 +117,7 @@ exec /usr/sbin/sshd -D
 		return nil, fmt.Errorf("start workspace: %w", err)
 	}
 
-	sshAddr := fmt.Sprintf("localhost:%d", sshPort)
-
-	// Wait up to 3 minutes for SSH banner — apt-get takes ~30-60s.
-	if !waitForSSH(sshAddr, 3*time.Minute) {
-		return nil, fmt.Errorf("SSH did not become ready within 3 minutes (container %s)", resp.ID[:12])
-	}
-
-	return &WorkspaceInfo{
+	ws := &WorkspaceInfo{
 		ContainerID: resp.ID[:12],
 		TeamID:      cfg.TeamID,
 		SSHHost:     "localhost",
@@ -121,8 +126,20 @@ exec /usr/sbin/sshd -D
 		Password:    password,
 		RAMMb:       cfg.RAMMb,
 		CPUCores:    cfg.CPUCores,
+		Status:      "provisioning",
 		CreatedAt:   time.Now().UTC(),
-	}, nil
+	}
+
+	// Poll for SSH readiness in the background — client can check status via GET /workspaces/:id/status
+	go func() {
+		if waitForSSH(fmt.Sprintf("localhost:%d", sshPort), 5*time.Minute) {
+			ws.Status = "ready"
+		} else {
+			ws.Status = "failed"
+		}
+	}()
+
+	return ws, nil
 }
 
 // freePort asks the OS for an available TCP port.
