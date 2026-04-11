@@ -23,7 +23,7 @@ services:
       PORT: "8081"
       # With host networking, postgres is reachable on localhost
       DATABASE_URL: postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable
-      PROXY_URL: http://localhost:8080
+      PROXY_URL: http://localhost:8082
       DOCKER_HOST: unix:///var/run/docker.sock
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

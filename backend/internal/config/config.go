@@ -18,7 +18,7 @@ func Load() *Config {
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable"),
 		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
-		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8080"),
+		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8082"),
 		ScanModel:   getEnv("SCAN_MODEL", "gemini-3-flash"),
 		AgentModel:  getEnv("AGENT_MODEL", "gemini-3-flash"),
 	}
