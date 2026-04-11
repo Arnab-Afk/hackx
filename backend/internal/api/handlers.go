@@ -26,11 +26,12 @@ type Server struct {
 	scanner    *scanner.Scanner
 	store      *store.Store
 	proxyURL   string
+	apiKey     string
 	agentModel string
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, agentModel string) http.Handler {
-	srv := &Server{mgr: mgr, scanner: sc, store: s, proxyURL: proxyURL, agentModel: agentModel}
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel string) http.Handler {
+	srv := &Server{mgr: mgr, scanner: sc, store: s, proxyURL: proxyURL, apiKey: apiKey, agentModel: agentModel}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -238,7 +239,7 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
 	}
 
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.agentModel)
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel)
 
 	// Forward events to bus
 	go func() {

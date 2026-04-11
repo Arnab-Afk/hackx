@@ -53,8 +53,9 @@ type Session struct {
 
 	mgr      *container.Manager
 	scanner  *scanner.Scanner
-	proxyURL string // antigravity proxy base URL
-	model    string // Gemini model for deployment agent
+	proxyURL string // antigravity proxy base URL (used when apiKey is empty)
+	apiKey   string // Anthropic API key for direct calls (preferred)
+	model    string // Claude model for deployment agent
 	events   chan Event
 }
 
@@ -94,9 +95,9 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, model string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model string) *Session {
 	if model == "" {
-		model = "gemini-3-flash"
+		model = "claude-3-5-haiku-20241022"
 	}
 	return &Session{
 		ID:       id,
@@ -105,6 +106,7 @@ func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, 
 		mgr:      mgr,
 		scanner:  sc,
 		proxyURL: proxyURL,
+		apiKey:   apiKey,
 		model:    model,
 		events:   make(chan Event, 64),
 	}
@@ -312,13 +314,22 @@ func (s *Session) callClaude(ctx context.Context, messages []anthropicMessage) (
 		return nil, err
 	}
 
-	url := strings.TrimRight(s.proxyURL, "/") + "/v1/messages"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	// Use direct Anthropic API when key is available, otherwise route through proxy
+	var endpoint, authKey string
+	if s.apiKey != "" {
+		endpoint = "https://api.anthropic.com/v1/messages"
+		authKey = s.apiKey
+	} else {
+		endpoint = strings.TrimRight(s.proxyURL, "/") + "/v1/messages"
+		authKey = "proxy"
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", "proxy")
+	httpReq.Header.Set("x-api-key", authKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	httpResp, err := http.DefaultClient.Do(httpReq)
