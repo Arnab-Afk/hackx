@@ -59,18 +59,25 @@ func New(proxyURL, model string) *Scanner {
 	return &Scanner{proxyURL: proxyURL, model: model}
 }
 
-// AnalyzeRepo clones the repo, reads key files, and returns a deployment plan.
-func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string) (*DeploymentPlan, error) {
-	// Clone to temp dir
+// AnalyzeRepo clones the repo and returns a deployment plan.
+// githubToken is optional — provide it for private repos.
+func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string, githubToken ...string) (*DeploymentPlan, error) {
 	dir, err := os.MkdirTemp("", "zkloud-scan-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
 	}
 	defer os.RemoveAll(dir)
 
+	cloneURL := repoURL
+	// For private repos: inject token into the URL
+	// https://github.com/user/repo → https://x-access-token:<token>@github.com/user/repo
+	if len(githubToken) > 0 && githubToken[0] != "" {
+		cloneURL = injectToken(repoURL, githubToken[0])
+	}
+
 	_, err = git.PlainCloneContext(ctx, dir, false, &git.CloneOptions{
-		URL:   repoURL,
-		Depth: 1, // shallow clone — we only need the files
+		URL:   cloneURL,
+		Depth: 1,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("clone %s: %w", repoURL, err)
@@ -193,6 +200,12 @@ func collectFiles(root string) ([]repoFile, error) {
 	}
 
 	return files, nil
+}
+
+// injectToken rewrites a GitHub HTTPS URL to embed an access token.
+// https://github.com/user/repo → https://x-access-token:<token>@github.com/user/repo
+func injectToken(repoURL, token string) string {
+	return strings.Replace(repoURL, "https://github.com/", fmt.Sprintf("https://x-access-token:%s@github.com/", token), 1)
 }
 
 func readTruncated(path string, maxBytes int) (string, error) {
