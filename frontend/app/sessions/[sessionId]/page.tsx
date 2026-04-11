@@ -54,10 +54,10 @@ const toolColors: Record<string, string> = {
   install_packages: "#f97316",
   configure_network: "#10b981",
   setup_ide: "#8b5cf6",
-  setup_database: "#f59e0b",
-  health_check: "#22c55e",
-  get_logs: "#6b7280",
-  destroy_container: "#ef4444",
+  setup_database: "#FFC107",
+  health_check: "#28A745",
+  get_logs: "#6B7280",
+  destroy_container: "#DC3545",
 };
 
 function formatTime(iso: string) {
@@ -69,6 +69,121 @@ function formatDuration(start: string, end: string) {
   const ms = new Date(end).getTime() - new Date(start).getTime();
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+
+function IconDashboard() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="3" width="7" height="7" rx="1"/>
+      <rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/>
+      <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+  );
+}
+function IconPipeline() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
+    </svg>
+  );
+}
+function IconKey() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="7.5" cy="15.5" r="4.5"/>
+      <path d="M21 2l-9.6 9.6M15.5 7.5l2 2"/>
+    </svg>
+  );
+}
+function IconCloud() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+    </svg>
+  );
+}
+function IconHistory() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <polyline points="12 8 12 12 14 14"/>
+      <path d="M3.05 11a9 9 0 1 1 .5 4M3 16v-5h5"/>
+    </svg>
+  );
+}
+function IconSettings() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  );
+}
+function IconHelp() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+  );
+}
+
+function Sidebar({ active }: { active: string }) {
+  const navItems = [
+    { label: "Dashboard", icon: <IconDashboard />, href: "/" },
+    { label: "Pipelines", icon: <IconPipeline />, href: "/deploy" },
+    { label: "Secrets", icon: <IconKey />, href: "#" },
+    { label: "Environments", icon: <IconCloud />, href: "#" },
+    { label: "Audit Trails", icon: <IconHistory />, href: "#" },
+  ];
+  return (
+    <aside className="shrink-0 w-64 flex flex-col justify-between p-4" style={{ background: "#101012" }}>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 px-2 py-2">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,191,255,0.12)", border: "1px solid rgba(0,191,255,0.25)" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BFFF" strokeWidth="2">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-white text-sm font-bold leading-tight">Zkloud</h1>
+            <p className="text-xs leading-tight" style={{ color: "#6B7280" }}>DevSecOps</p>
+          </div>
+        </div>
+        <nav className="flex flex-col gap-1 mt-2">
+          {navItems.map(({ label, icon, href }) => {
+            const isActive = label === active;
+            return (
+              <Link
+                key={label}
+                href={href}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  color: isActive ? "#00BFFF" : "#9CA3AF",
+                  background: isActive ? "rgba(0,191,255,0.1)" : "transparent",
+                  textDecoration: "none",
+                }}
+              >
+                {icon}
+                {label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
+          <IconSettings />Settings
+        </Link>
+        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
+          <IconHelp />Help
+        </Link>
+      </div>
+    </aside>
+  );
 }
 
 export default function SessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
@@ -121,7 +236,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0e0e0e", color: "#6b7280" }}>
+      <div className="flex h-screen items-center justify-center" style={{ background: "#0A0A0A", color: "#6B7280" }}>
         <div className="flex items-center gap-3">
           <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -135,41 +250,43 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0e0e0e", color: "#f87171" }}>
+      <div className="flex h-screen items-center justify-center" style={{ background: "#0A0A0A", color: "#FC7070" }}>
         <div className="text-center">
           <p className="font-bold mb-2">Session not found</p>
           <p className="text-sm opacity-60 mb-4">{error}</p>
-          <Link href="/" className="text-sm underline" style={{ color: "#5c6e8c" }}>← Back to dashboard</Link>
+          <Link href="/" className="text-sm underline" style={{ color: "#00BFFF" }}>← Back to dashboard</Link>
         </div>
       </div>
     );
   }
 
   const actions = log?.actions ?? [];
-  const stateColor = session?.state === "completed" ? "#22c55e" : session?.state === "failed" ? "#ef4444" : "#eab308";
+  const stateColor = session?.state === "completed" ? "#28A745" : session?.state === "failed" ? "#DC3545" : "#FFC107";
 
   return (
-    <div className="min-h-screen" style={{ background: "#0e0e0e", color: "#d1d5db", fontFamily: "var(--font-inter), sans-serif" }}>
-      {/* Nav */}
-      <header className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid #1f2937" }}>
+    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+      <Sidebar active="Pipelines" />
+      <main className="flex-1 flex flex-col overflow-y-auto">
+      <div className="p-8">
+      <header className="flex flex-wrap justify-between items-center gap-4 mb-6" style={{ borderBottom: "1px solid #2C2C2E", paddingBottom: "1.5rem", marginBottom: "2rem" }}>
         <div className="flex items-center gap-4">
-          <Link href="/" className="flex items-center gap-2 text-sm transition-opacity hover:opacity-70" style={{ color: "#6b7280" }}>
+          <Link href="/" className="flex items-center gap-2 text-sm transition-opacity hover:opacity-70" style={{ color: "#6B7280" }}>
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="m15 18-6-6 6-6" />
             </svg>
             Dashboard
           </Link>
           <span style={{ color: "#374151" }}>/</span>
-          <span className="text-sm" style={{ color: "#6b7280" }}>Sessions</span>
+          <span className="text-sm" style={{ color: "#6B7280" }}>Sessions</span>
           <span style={{ color: "#374151" }}>/</span>
-          <span className="text-sm font-semibold" style={{ color: "#f3f4f6", fontFamily: "var(--font-space-mono), monospace" }}>
+          <span className="text-sm font-semibold" style={{ color: "#F3F4F6", fontFamily: "var(--font-space-mono), monospace" }}>
             {sessionId.slice(0, 20)}…
           </span>
         </div>
         <Link
           href="/deploy"
           className="text-xs px-4 py-1.5 rounded-sm font-semibold transition-opacity hover:opacity-80"
-          style={{ background: "#5c6e8c", color: "#fff" }}
+          style={{ background: "#00BFFF", color: "#fff" }}
         >
           New Deploy
         </Link>
@@ -177,7 +294,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
       <div className="max-w-5xl mx-auto px-6 py-10">
         {/* Session header */}
-        <div className="rounded-sm p-6 mb-6" style={{ background: "#181818", border: "1px solid #1f2937" }}>
+        <div className="rounded-sm p-6 mb-6" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
           <div className="flex items-start justify-between gap-4 mb-4">
             <div className="flex-1">
               <div className="flex items-center gap-3 mb-2">
@@ -189,30 +306,30 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   {session?.state}
                 </span>
               </div>
-              <p className="text-base font-medium" style={{ color: "#f3f4f6" }}>{session?.prompt}</p>
+              <p className="text-base font-medium" style={{ color: "#F3F4F6" }}>{session?.prompt}</p>
             </div>
             <div className="text-right shrink-0">
-              <div className="text-xs mb-1" style={{ color: "#4b5563" }}>Started</div>
-              <div className="text-xs font-mono" style={{ color: "#6b7280" }}>{session ? formatTime(session.created_at) : "—"}</div>
+              <div className="text-xs mb-1" style={{ color: "#4B5563" }}>Started</div>
+              <div className="text-xs font-mono" style={{ color: "#6B7280" }}>{session ? formatTime(session.created_at) : "—"}</div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4" style={{ borderTop: "1px solid #1f2937" }}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4" style={{ borderTop: "1px solid #2C2C2E" }}>
             <div>
-              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4b5563" }}>Session ID</div>
-              <div className="text-xs font-mono truncate" style={{ color: "#6b7280" }}>{session?.id}</div>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4B5563" }}>Session ID</div>
+              <div className="text-xs font-mono truncate" style={{ color: "#6B7280" }}>{session?.id}</div>
             </div>
             <div>
-              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4b5563" }}>Team ID</div>
-              <div className="text-xs font-mono truncate" style={{ color: "#6b7280" }}>{session?.team_id}</div>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4B5563" }}>Team ID</div>
+              <div className="text-xs font-mono truncate" style={{ color: "#6B7280" }}>{session?.team_id}</div>
             </div>
             <div>
-              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4b5563" }}>Actions</div>
-              <div className="text-sm font-bold" style={{ color: "#f3f4f6" }}>{actions.length}</div>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4B5563" }}>Actions</div>
+              <div className="text-sm font-bold" style={{ color: "#F3F4F6" }}>{actions.length}</div>
             </div>
             <div>
-              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4b5563" }}>Duration</div>
-              <div className="text-sm font-bold" style={{ color: "#f3f4f6" }}>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#4B5563" }}>Duration</div>
+              <div className="text-sm font-bold" style={{ color: "#F3F4F6" }}>
                 {session ? formatDuration(session.created_at, session.updated_at) : "—"}
               </div>
             </div>
@@ -223,18 +340,18 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         {actions.length > 0 && (
           <div
             className="rounded-sm p-4 mb-6 flex items-center gap-3"
-            style={{ background: "#181818", border: "1px solid #1f2937" }}
+            style={{ background: "#161618", border: "1px solid #2C2C2E" }}
           >
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#5c6e8c" }}>On-Chain Audit Root</div>
-              <div className="text-xs font-mono truncate" style={{ color: "#6b7280" }}>{computeMerkleRoot(actions)}</div>
+              <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#00BFFF" }}>On-Chain Audit Root</div>
+              <div className="text-xs font-mono truncate" style={{ color: "#6B7280" }}>{computeMerkleRoot(actions)}</div>
             </div>
             <a
               href={`https://base.easscan.org/`}
               target="_blank"
               rel="noreferrer"
               className="text-xs px-3 py-1.5 rounded-sm shrink-0 transition-opacity hover:opacity-80"
-              style={{ background: "#1f2937", color: "#5c6e8c" }}
+              style={{ background: "#161618", border: "1px solid #2C2C2E", color: "#00BFFF" }}
             >
               Verify on EAS →
             </a>
@@ -243,13 +360,13 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
         {/* Action log */}
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#4b5563" }}>
+          <h2 className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#4B5563" }}>
             Action Log — {actions.length} tool calls
           </h2>
 
           {actions.length === 0 && (
-            <div className="rounded-sm p-8 text-center" style={{ background: "#181818", border: "1px solid #1f2937" }}>
-              <p className="text-sm" style={{ color: "#4b5563" }}>
+            <div className="rounded-sm p-8 text-center" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+              <p className="text-sm" style={{ color: "#4B5563" }}>
                 {session?.state === "running" ? "Session is still running…" : "No actions recorded."}
               </p>
             </div>
@@ -266,7 +383,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
             <div className="space-y-3">
               {actions.map((action, i) => {
-                const color = toolColors[action.tool] ?? "#6b7280";
+                const color = toolColors[action.tool] ?? "#6B7280";
                 const icon = toolIcons[action.tool] ?? "⚙️";
                 const isExpanded = expanded[i];
                 const hasError = !!action.error;
@@ -275,19 +392,19 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                   <div key={i} className="relative pl-12">
                     {/* timeline dot */}
                     <div
-                      className="absolute left-3.5 top-4 w-3 h-3 rounded-sm border-2"
+                      className="absolute left-3.5 top-4 w-3 h-3 rounded border-2"
                       style={{
-                        background: hasError ? "#7f1d1d" : "#0e0e0e",
-                        borderColor: hasError ? "#ef4444" : color,
+                        background: hasError ? "#7f1d1d" : "#0A0A0A",
+                        borderColor: hasError ? "#DC3545" : color,
                         boxShadow: hasError ? "0 0 6px #ef444466" : `0 0 6px ${color}44`,
                       }}
                     />
 
                     <div
-                      className="rounded-sm overflow-hidden"
+                      className="rounded-xl overflow-hidden"
                       style={{
-                        background: "#181818",
-                        border: `1px solid ${hasError ? "#7f1d1d" : "#1f2937"}`,
+                        background: "#161618",
+                        border: `1px solid ${hasError ? "#7f1d1d" : "#2C2C2E"}`,
                       }}
                     >
                       {/* header row */}
@@ -302,20 +419,20 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                         >
                           {action.tool}
                         </span>
-                        <span className="text-xs" style={{ color: "#4b5563" }}>
+                        <span className="text-xs" style={{ color: "#4B5563" }}>
                           #{action.index}
                         </span>
                         <span className="ml-auto text-xs" style={{ color: "#374151" }}>
                           {formatTime(action.timestamp)}
                         </span>
                         {hasError ? (
-                          <span className="text-xs font-semibold" style={{ color: "#ef4444" }}>✗ error</span>
+                          <span className="text-xs font-semibold" style={{ color: "#DC3545" }}>✗ error</span>
                         ) : (
-                          <span className="text-xs font-semibold" style={{ color: "#22c55e" }}>✓</span>
+                          <span className="text-xs font-semibold" style={{ color: "#28A745" }}>✓</span>
                         )}
                         <svg
                           xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24"
-                          fill="none" stroke="#4b5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                          fill="none" stroke="#4B5563" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
                           className="transition-transform"
                           style={{ transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }}
                         >
@@ -324,15 +441,15 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                       </button>
 
                       {isExpanded && (
-                        <div className="px-4 pb-4 space-y-3" style={{ borderTop: "1px solid #1f2937" }}>
+                        <div className="px-4 pb-4 space-y-3" style={{ borderTop: "1px solid #2C2C2E" }}>
                           {/* Input */}
                           <div className="pt-3">
-                            <div className="text-xs uppercase tracking-wider mb-1.5" style={{ color: "#4b5563" }}>Input</div>
+                            <div className="text-xs uppercase tracking-wider mb-1.5" style={{ color: "#4B5563" }}>Input</div>
                             <pre
                               className="text-xs p-3 rounded-sm overflow-x-auto"
                               style={{
-                                background: "#111111",
-                                color: "#9ca3af",
+                                background: "#0A0A0A",
+                                color: "#9CA3AF",
                                 fontFamily: "var(--font-space-mono), monospace",
                                 lineHeight: 1.6,
                               }}
@@ -344,14 +461,14 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                           {/* Result / Error */}
                           {(action.result !== undefined || action.error) && (
                             <div>
-                              <div className="text-xs uppercase tracking-wider mb-1.5" style={{ color: hasError ? "#7f1d1d" : "#4b5563" }}>
+                              <div className="text-xs uppercase tracking-wider mb-1.5" style={{ color: hasError ? "#7f1d1d" : "#4B5563" }}>
                                 {hasError ? "Error" : "Result"}
                               </div>
                               <pre
                                 className="text-xs p-3 rounded-sm overflow-x-auto"
                                 style={{
-                                  background: "#111111",
-                                  color: hasError ? "#f87171" : "#6b7280",
+                                  background: "#0A0A0A",
+                                  color: hasError ? "#FC7070" : "#6B7280",
                                   fontFamily: "var(--font-space-mono), monospace",
                                   lineHeight: 1.6,
                                 }}
@@ -365,14 +482,14 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                           <div className="flex items-center justify-between pt-1">
                             <div>
                               <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#374151" }}>Action Hash</div>
-                              <code className="text-xs" style={{ color: "#4b5563", fontFamily: "var(--font-space-mono), monospace" }}>
+                              <code className="text-xs" style={{ color: "#4B5563", fontFamily: "var(--font-space-mono), monospace" }}>
                                 {action.hash}
                               </code>
                             </div>
                             <button
                               onClick={() => copyHash(action.hash, i)}
-                              className="text-xs px-2 py-1 rounded-sm transition-opacity hover:opacity-80"
-                              style={{ background: "#1f2937", color: "#6b7280" }}
+                              className="text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
+                              style={{ background: "#2C2C2E", color: "#6B7280" }}
                             >
                               {copied === i ? "Copied!" : "Copy"}
                             </button>
@@ -388,11 +505,13 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         </div>
 
         {/* Footer links */}
-        <div className="mt-10 pt-6 flex items-center justify-between" style={{ borderTop: "1px solid #1f2937" }}>
-          <Link href="/" className="text-xs hover:underline" style={{ color: "#4b5563" }}>← Dashboard</Link>
-          <Link href="/deploy" className="text-xs hover:underline" style={{ color: "#5c6e8c" }}>Deploy Again →</Link>
+        <div className="mt-10 pt-6 flex items-center justify-between" style={{ borderTop: "1px solid #2C2C2E" }}>
+          <Link href="/" className="text-xs hover:underline" style={{ color: "#4B5563" }}>← Dashboard</Link>
+          <Link href="/deploy" className="text-xs hover:underline" style={{ color: "#00BFFF" }}>Deploy Again →</Link>
         </div>
       </div>
+      </div>
+      </main>
     </div>
   );
 }

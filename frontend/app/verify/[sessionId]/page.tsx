@@ -49,11 +49,11 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
-      className="text-xs px-3 py-1.5 rounded-sm transition-opacity hover:opacity-80"
+      className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
       style={{
-        background: "#1f2937",
-        color: "#5c6e8c",
-        border: "1px solid #1f2937",
+        background: "#2C2C2E",
+        color: "#00BFFF",
+        border: "1px solid #2C2C2E",
         fontFamily: "var(--font-space-mono), monospace",
         fontSize: "10px",
         letterSpacing: "0.06em",
@@ -62,6 +62,121 @@ function CopyButton({ text }: { text: string }) {
     >
       {copied ? "Copied!" : "Copy"}
     </button>
+  );
+}
+
+
+function IconDashboard() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="3" width="7" height="7" rx="1"/>
+      <rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/>
+      <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+  );
+}
+function IconPipeline() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
+    </svg>
+  );
+}
+function IconKey() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="7.5" cy="15.5" r="4.5"/>
+      <path d="M21 2l-9.6 9.6M15.5 7.5l2 2"/>
+    </svg>
+  );
+}
+function IconCloud() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+    </svg>
+  );
+}
+function IconHistory() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <polyline points="12 8 12 12 14 14"/>
+      <path d="M3.05 11a9 9 0 1 1 .5 4M3 16v-5h5"/>
+    </svg>
+  );
+}
+function IconSettings() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  );
+}
+function IconHelp() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="10"/>
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+      <line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+  );
+}
+
+function Sidebar({ active }: { active: string }) {
+  const navItems = [
+    { label: "Dashboard", icon: <IconDashboard />, href: "/" },
+    { label: "Pipelines", icon: <IconPipeline />, href: "/deploy" },
+    { label: "Secrets", icon: <IconKey />, href: "#" },
+    { label: "Environments", icon: <IconCloud />, href: "#" },
+    { label: "Audit Trails", icon: <IconHistory />, href: "#" },
+  ];
+  return (
+    <aside className="shrink-0 w-64 flex flex-col justify-between p-4" style={{ background: "#101012" }}>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center gap-3 px-2 py-2">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: "rgba(0,191,255,0.12)", border: "1px solid rgba(0,191,255,0.25)" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BFFF" strokeWidth="2">
+              <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/>
+            </svg>
+          </div>
+          <div>
+            <h1 className="text-white text-sm font-bold leading-tight">Zkloud</h1>
+            <p className="text-xs leading-tight" style={{ color: "#6B7280" }}>DevSecOps</p>
+          </div>
+        </div>
+        <nav className="flex flex-col gap-1 mt-2">
+          {navItems.map(({ label, icon, href }) => {
+            const isActive = label === active;
+            return (
+              <Link
+                key={label}
+                href={href}
+                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  color: isActive ? "#00BFFF" : "#9CA3AF",
+                  background: isActive ? "rgba(0,191,255,0.1)" : "transparent",
+                  textDecoration: "none",
+                }}
+              >
+                {icon}
+                {label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
+      <div className="flex flex-col gap-1">
+        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
+          <IconSettings />Settings
+        </Link>
+        <Link href="#" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium" style={{ color: "#9CA3AF", textDecoration: "none" }}>
+          <IconHelp />Help
+        </Link>
+      </div>
+    </aside>
   );
 }
 
@@ -108,10 +223,10 @@ export default function VerifyPage({
   if (loading) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center"
-        style={{ background: "#0e0e0e" }}
+        className="flex h-screen items-center justify-center"
+        style={{ background: "#0A0A0A" }}
       >
-        <div className="flex items-center gap-3" style={{ color: "#4b5563" }}>
+        <div className="flex items-center gap-3" style={{ color: "#4B5563" }}>
           <svg
             className="animate-spin"
             xmlns="http://www.w3.org/2000/svg"
@@ -149,20 +264,20 @@ export default function VerifyPage({
   const easBaseUrl = "https://base-sepolia.easscan.org";
 
   return (
-    <div
-      className="min-h-screen"
-      style={{ background: "#0e0e0e", color: "#d1d5db", fontFamily: "var(--font-inter), sans-serif" }}
-    >
+    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+      <Sidebar active="Audit Trails" />
+      <main className="flex-1 flex flex-col overflow-y-auto">
+      <div>
       {/* Header */}
       <header
-        className="flex items-center justify-between px-6 py-4"
-        style={{ borderBottom: "1px solid #1f2937" }}
+        className="flex flex-wrap items-center justify-between gap-4 px-8 py-5"
+        style={{ borderBottom: "1px solid #2C2C2E" }}
       >
         <div className="flex items-center gap-3">
           <Link
             href="/"
             className="flex items-center gap-1.5 transition-opacity hover:opacity-70"
-            style={{ color: "#6b7280", fontSize: "13px" }}
+            style={{ color: "#6B7280", fontSize: "13px" }}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -183,21 +298,21 @@ export default function VerifyPage({
           <Link
             href={`/sessions/${sessionId}`}
             className="transition-opacity hover:opacity-70"
-            style={{ color: "#6b7280", fontSize: "13px" }}
+            style={{ color: "#6B7280", fontSize: "13px" }}
           >
             {sessionId.slice(0, 20)}…
           </Link>
           <span style={{ color: "#374151" }}>/</span>
-          <span style={{ color: "#6b7280", fontSize: "13px" }}>Verify</span>
+          <span style={{ color: "#6B7280", fontSize: "13px" }}>Verify</span>
         </div>
 
         <Link
           href={`/sessions/${sessionId}`}
-          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-sm transition-opacity hover:opacity-80 uppercase tracking-widest"
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80 uppercase tracking-widest"
           style={{
-            background: "#181818",
-            color: "#5c6e8c",
-            border: "1px solid #1f2937",
+            background: "#161618",
+            color: "#00BFFF",
+            border: "1px solid #2C2C2E",
           }}
         >
           View Session
@@ -221,18 +336,18 @@ export default function VerifyPage({
         {/* Page title */}
         <div className="mb-8">
           <p
-            className="text-xs uppercase tracking-widest mb-2"
-            style={{ color: "#4b5563" }}
+            className="text-xs uppercase tracking-widest mb-2 font-mono"
+            style={{ color: "#4B5563" }}
           >
-            On-chain attestation
+            ON-CHAIN ATTESTATION
           </p>
           <h1
             className="font-semibold mb-2"
-            style={{ fontSize: "22px", color: "#f3f4f6", letterSpacing: "-0.02em" }}
+            style={{ fontSize: "28px", fontWeight: "900", color: "#F9FAFB", letterSpacing: "-0.03em" }}
           >
             Audit Trail Verification
           </h1>
-          <p className="text-sm" style={{ color: "#6b7280" }}>
+          <p className="text-sm" style={{ color: "#6B7280" }}>
             Every agent action is hashed into a Merkle tree and attested
             on-chain via EAS. Anyone can verify this session's execution
             log independently.
@@ -241,29 +356,29 @@ export default function VerifyPage({
 
         {/* Session info */}
         <div
-          className="rounded-sm mb-4 overflow-hidden"
-          style={{ background: "#181818", border: "1px solid #1f2937" }}
+          className="rounded-xl mb-4 overflow-hidden"
+          style={{ background: "#161618", border: "1px solid #2C2C2E" }}
         >
           <div
             className="px-4 py-2.5"
-            style={{ borderBottom: "1px solid #1f2937" }}
+            style={{ borderBottom: "1px solid #2C2C2E" }}
           >
             <span
               className="text-xs uppercase tracking-widest"
-              style={{ color: "#4b5563" }}
+              style={{ color: "#4B5563" }}
             >
               Session details
             </span>
           </div>
-          <div className="grid grid-cols-2 gap-px" style={{ background: "#1f2937" }}>
-            <div className="p-4" style={{ background: "#181818" }}>
-              <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "#4b5563", fontSize: "10px" }}>
+          <div className="grid grid-cols-2 gap-px" style={{ background: "#2C2C2E" }}>
+            <div className="p-4" style={{ background: "#161618" }}>
+              <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "#4B5563", fontSize: "10px" }}>
                 ID
               </p>
               <p
                 style={{
                   fontSize: "12px",
-                  color: "#9ca3af",
+                  color: "#9CA3AF",
                   fontFamily: "var(--font-space-mono), monospace",
                   wordBreak: "break-all",
                 }}
@@ -271,8 +386,8 @@ export default function VerifyPage({
                 {session?.id ?? sessionId}
               </p>
             </div>
-            <div className="p-4" style={{ background: "#181818" }}>
-              <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "#4b5563", fontSize: "10px" }}>
+            <div className="p-4" style={{ background: "#161618" }}>
+              <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "#4B5563", fontSize: "10px" }}>
                 State
               </p>
               <div className="flex items-center gap-2">
@@ -281,10 +396,10 @@ export default function VerifyPage({
                   style={{
                     background:
                       session?.state === "running"
-                        ? "#22c55e"
+                        ? "#28A745"
                         : session?.state === "completed"
-                        ? "#22c55e"
-                        : "#4b5563",
+                        ? "#28A745"
+                        : "#4B5563",
                   }}
                 />
                 <span
@@ -292,8 +407,8 @@ export default function VerifyPage({
                     fontSize: "12px",
                     color:
                       session?.state === "running" || session?.state === "completed"
-                        ? "#22c55e"
-                        : "#6b7280",
+                        ? "#28A745"
+                        : "#6B7280",
                     fontFamily: "var(--font-space-mono), monospace",
                   }}
                 >
@@ -303,12 +418,12 @@ export default function VerifyPage({
             </div>
             <div
               className="col-span-2 p-4"
-              style={{ background: "#181818", borderTop: "1px solid #1f2937" }}
+              style={{ background: "#161618", borderTop: "1px solid #2C2C2E" }}
             >
-              <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "#4b5563", fontSize: "10px" }}>
+              <p className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "#4B5563", fontSize: "10px" }}>
                 Prompt
               </p>
-              <p className="text-sm" style={{ color: "#9ca3af" }}>
+              <p className="text-sm" style={{ color: "#9CA3AF" }}>
                 {session?.prompt ?? "—"}
               </p>
             </div>
@@ -317,24 +432,24 @@ export default function VerifyPage({
 
         {/* Merkle root card */}
         <div
-          className="rounded-sm mb-4"
-          style={{ background: "#181818", border: "1px solid #1f2937" }}
+          className="rounded-xl mb-4"
+          style={{ background: "#161618", border: "1px solid #2C2C2E" }}
         >
           <div
             className="px-4 py-2.5 flex items-center justify-between"
-            style={{ borderBottom: "1px solid #1f2937" }}
+            style={{ borderBottom: "1px solid #2C2C2E" }}
           >
             <span
               className="text-xs uppercase tracking-widest"
-              style={{ color: "#5c6e8c" }}
+              style={{ color: "#00BFFF" }}
             >
-              Merkle Root
+              MERKLE ROOT
             </span>
             <span
               className="text-xs px-2 py-0.5 rounded-sm"
               style={{
-                background: "#1f2937",
-                color: "#4b5563",
+                background: "#2C2C2E",
+                color: "#4B5563",
                 fontFamily: "var(--font-space-mono), monospace",
                 fontSize: "10px",
               }}
@@ -347,11 +462,11 @@ export default function VerifyPage({
             <div
               className="p-3 rounded-sm mb-4"
               style={{
-                background: "#111111",
-                border: "1px solid #1f2937",
+                background: "#0A0A0A",
+                border: "1px solid #2C2C2E",
                 fontFamily: "var(--font-space-mono), monospace",
                 fontSize: "12px",
-                color: "#9ca3af",
+                color: "#9CA3AF",
                 wordBreak: "break-all",
                 lineHeight: 1.6,
               }}
@@ -365,11 +480,11 @@ export default function VerifyPage({
                 href={`${easBaseUrl}/schema/view/${EAS_SCHEMA_UID}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs px-3 py-1.5 rounded-sm transition-opacity hover:opacity-80"
+                className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
                 style={{
-                  background: "#1f2937",
-                  color: "#5c6e8c",
-                  border: "1px solid #1f2937",
+                  background: "#2C2C2E",
+                  color: "#00BFFF",
+                  border: "1px solid #2C2C2E",
                   fontSize: "10px",
                   letterSpacing: "0.06em",
                   textTransform: "uppercase",
@@ -384,11 +499,11 @@ export default function VerifyPage({
                   href={`${easBaseUrl}/attestation/view/${attestationUid}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs px-3 py-1.5 rounded-sm transition-opacity hover:opacity-80"
+                  className="text-xs px-3 py-1.5 rounded-lg transition-opacity hover:opacity-80"
                   style={{
-                    background: "#1f2937",
-                    color: "#5c6e8c",
-                    border: "1px solid #1f2937",
+                    background: "#2C2C2E",
+                    color: "#00BFFF",
+                    border: "1px solid #2C2C2E",
                     fontSize: "10px",
                     letterSpacing: "0.06em",
                     textTransform: "uppercase",
@@ -405,16 +520,16 @@ export default function VerifyPage({
 
         {/* How to verify */}
         <div
-          className="rounded-sm mb-4"
-          style={{ background: "#181818", border: "1px solid #1f2937" }}
+          className="rounded-xl mb-4"
+          style={{ background: "#161618", border: "1px solid #2C2C2E" }}
         >
           <div
             className="px-4 py-2.5"
-            style={{ borderBottom: "1px solid #1f2937" }}
+            style={{ borderBottom: "1px solid #2C2C2E" }}
           >
             <span
               className="text-xs uppercase tracking-widest"
-              style={{ color: "#4b5563" }}
+              style={{ color: "#4B5563" }}
             >
               How to verify independently
             </span>
@@ -442,25 +557,25 @@ export default function VerifyPage({
                 <span
                   className="shrink-0 w-5 h-5 rounded-sm flex items-center justify-center text-xs font-semibold"
                   style={{
-                    background: "#111111",
-                    color: "#4b5563",
-                    border: "1px solid #1f2937",
+                    background: "#0A0A0A",
+                    color: "#4B5563",
+                    border: "1px solid #2C2C2E",
                     fontSize: "10px",
                   }}
                 >
                   {step.n}
                 </span>
-                <p className="text-sm pt-0.5" style={{ color: "#6b7280", lineHeight: 1.6 }}>
+                <p className="text-sm pt-0.5" style={{ color: "#6B7280", lineHeight: 1.6 }}>
                   {step.text}{" "}
                   {step.code && !step.href && (
                     <code
                       style={{
                         fontFamily: "var(--font-space-mono), monospace",
                         fontSize: "11px",
-                        color: "#9ca3af",
-                        background: "#1f2937",
+                        color: "#9CA3AF",
+                        background: "#2C2C2E",
                         padding: "1px 5px",
-                        borderRadius: "2px",
+                        borderRadius: "4px",
                       }}
                     >
                       {step.code}
@@ -474,7 +589,7 @@ export default function VerifyPage({
                       style={{
                         fontFamily: "var(--font-space-mono), monospace",
                         fontSize: "11px",
-                        color: "#5c6e8c",
+                        color: "#00BFFF",
                       }}
                     >
                       {step.code}
@@ -489,17 +604,17 @@ export default function VerifyPage({
         {/* Action log */}
         {log && log.actions && log.actions.length > 0 && (
           <div
-            className="rounded-sm"
-            style={{ background: "#181818", border: "1px solid #1f2937", overflow: "hidden" }}
+            className="rounded-xl"
+            style={{ background: "#161618", border: "1px solid #2C2C2E", overflow: "hidden" }}
           >
             {/* table head */}
             <div
               className="grid px-4 py-2"
               style={{
                 gridTemplateColumns: "40px 1fr 120px 120px 36px",
-                borderBottom: "1px solid #1f2937",
+                borderBottom: "1px solid #2C2C2E",
                 fontSize: "10px",
-                color: "#4b5563",
+                color: "#4B5563",
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
               }}
@@ -520,7 +635,7 @@ export default function VerifyPage({
                     borderBottom:
                       i < log.actions.length - 1 ? "1px solid #161616" : "none",
                     background:
-                      expandedRow === i ? "#111111" : "transparent",
+                      expandedRow === i ? "#0A0A0A" : "transparent",
                   }}
                   onClick={() =>
                     setExpandedRow((prev) => (prev === i ? null : i))
@@ -538,7 +653,7 @@ export default function VerifyPage({
                   <span
                     className="text-sm font-medium"
                     style={{
-                      color: "#d1d5db",
+                      color: "#E5E7EB",
                       fontFamily: "var(--font-space-mono), monospace",
                     }}
                   >
@@ -547,7 +662,7 @@ export default function VerifyPage({
                   <span
                     className="text-xs"
                     style={{
-                      color: "#4b5563",
+                      color: "#4B5563",
                       fontFamily: "var(--font-space-mono), monospace",
                     }}
                   >
@@ -556,7 +671,7 @@ export default function VerifyPage({
                   <span
                     className="text-xs"
                     style={{
-                      color: "#4b5563",
+                      color: "#4B5563",
                       fontFamily: "var(--font-space-mono), monospace",
                     }}
                   >
@@ -565,7 +680,7 @@ export default function VerifyPage({
                   <span
                     className="text-xs font-mono text-right"
                     style={{
-                      color: action.success ? "#22c55e" : "#ef4444",
+                      color: action.success ? "#28A745" : "#DC3545",
                     }}
                   >
                     {action.success ? "✓" : "✗"}
@@ -575,7 +690,7 @@ export default function VerifyPage({
                 {expandedRow === i && (
                   <div
                     className="px-4 pb-3 space-y-2"
-                    style={{ background: "#111111", borderBottom: i < log.actions.length - 1 ? "1px solid #161616" : "none" }}
+                    style={{ background: "#0A0A0A", borderBottom: i < log.actions.length - 1 ? "1px solid #161616" : "none" }}
                   >
                     <div>
                       <p className="text-xs uppercase tracking-widest mb-1" style={{ color: "#374151", fontSize: "10px" }}>
@@ -585,7 +700,7 @@ export default function VerifyPage({
                         style={{
                           fontFamily: "var(--font-space-mono), monospace",
                           fontSize: "11px",
-                          color: "#6b7280",
+                          color: "#6B7280",
                           wordBreak: "break-all",
                         }}
                       >
@@ -600,7 +715,7 @@ export default function VerifyPage({
                         style={{
                           fontFamily: "var(--font-space-mono), monospace",
                           fontSize: "11px",
-                          color: "#6b7280",
+                          color: "#6B7280",
                           wordBreak: "break-all",
                         }}
                       >
@@ -614,6 +729,8 @@ export default function VerifyPage({
           </div>
         )}
       </div>
+      </div>
+      </main>
     </div>
   );
 }
