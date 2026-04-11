@@ -90,6 +90,7 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq openssh-server sudo curl wget git vim nano unzip build-essential
 useradd -M -s /bin/bash %s
+echo '%s:%s' | chpasswd
 # Populate home from skel on first boot; chown always to fix ownership.
 [ -f /home/%s/.bashrc ] || cp -r /etc/skel/. /home/%s/
 chown -R %s:%s /home/%s
@@ -109,6 +110,7 @@ cat > /etc/motd << 'EOF'
 EOF
 exec /usr/sbin/sshd -D
 `, username,
+		username, password,
 		username, username,
 		username, username, username,
 		username,
