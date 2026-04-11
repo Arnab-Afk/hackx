@@ -85,9 +85,21 @@ function FrameworkBadge({ opt }: { opt: DeployOption }) {
   );
 }
 
+// ── types ─────────────────────────────────────────────────────────────────────
+
+type GithubRepo = {
+  full_name: string;
+  private: boolean;
+  description: string;
+  html_url: string;
+  clone_url: string;
+  language: string;
+  updated_at: string;
+};
+
 // ── page ──────────────────────────────────────────────────────────────────────
 
-type Phase = "repo" | "scanning" | "pick" | "vm" | "deploying" | "done" | "error";
+type Phase = "repo" | "repos" | "scanning" | "pick" | "vm" | "deploying" | "done" | "error";
 
 export default function DeployPage() {
   const router = useRouter();
@@ -99,6 +111,12 @@ export default function DeployPage() {
   // Stage 1 — repo
   const [repoURL, setRepoURL] = useState("");
   const [githubConnected, setGithubConnected] = useState(false);
+  const [githubWallet, setGithubWallet] = useState("");
+
+  // Repo picker
+  const [repos, setRepos] = useState<GithubRepo[]>([]);
+  const [repoSearch, setRepoSearch] = useState("");
+  const [loadingRepos, setLoadingRepos] = useState(false);
 
   // Stage 2 — scan
   const [scan, setScan] = useState<RepoScan | null>(null);
@@ -115,47 +133,39 @@ export default function DeployPage() {
   const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
 
   useEffect(() => {
-    // If user came back from GitHub OAuth, the token is stored server-side.
-    // Just mark as connected.
     const params = new URLSearchParams(window.location.search);
     if (params.get("github") === "connected") {
+      const wallet = params.get("wallet") ?? address ?? "";
       setGithubConnected(true);
+      setGithubWallet(wallet);
       router.replace("/deploy");
+      // Auto-load repos
+      loadRepos(wallet);
     }
-  }, [router]);
+  }, [router, address]);
+
+  async function loadRepos(wallet: string) {
+    if (!wallet) return;
+    setLoadingRepos(true);
+    setPhase("repos");
+    try {
+      const res = await fetch(`${API}/auth/github/repos?wallet=${encodeURIComponent(wallet)}`);
+      if (!res.ok) throw new Error(await res.text());
+      const data: GithubRepo[] = await res.json();
+      setRepos(data);
+    } catch {
+      // silently fall back — user can still paste URL manually
+      setPhase("repo");
+    } finally {
+      setLoadingRepos(false);
+    }
+  }
 
   // ── handlers ────────────────────────────────────────────────────────────────
 
   async function handleScan() {
     if (!repoURL.trim()) return;
-    setPhase("scanning");
-    setErrMsg("");
-    try {
-      const res = await fetch(`${API}/repos/scan`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_url: repoURL.trim(), wallet: address ?? "" }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const text = await res.text();
-      if (!res.ok) {
-        if (text.includes("private repo") || text.includes("connect GitHub")) {
-          throw new Error("🔒 This repo is private. Click \"Authorize with GitHub\" below to connect your account first.");
-        }
-        throw new Error(text);
-      }
-      const data: RepoScan = JSON.parse(text);
-      if (!data.options?.length) throw new Error("No deployable components detected in this repo.\n\nSupported: Next.js, React, Vue, Express, FastAPI, Flask, Django, Go, static HTML");
-      setScan(data);
-      // pre-fill env var keys
-      const defaults: Record<string, string> = {};
-      (data.env_vars ?? []).forEach((k) => (defaults[k] = ""));
-      setEnvVars(defaults);
-      setPhase("pick");
-    } catch (e) {
-      setErrMsg(String(e));
-      setPhase("error");
-    }
+    await runScan(repoURL.trim());
   }
 
   async function handleDeploy() {
@@ -231,21 +241,57 @@ export default function DeployPage() {
     window.location.href = `${API}/auth/github?wallet=${address}`;
   }
 
+  async function selectRepo(repo: GithubRepo) {
+    const url = repo.clone_url.replace(/\.git$/, "");
+    setRepoURL(url);
+    await runScan(url);
+  }
+
+  async function runScan(url: string) {
+    setPhase("scanning");
+    setErrMsg("");
+    try {
+      const res = await fetch(`${API}/repos/scan`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo_url: url, wallet: githubWallet || address || "" }),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        if (text.includes("private repo") || text.includes("connect GitHub")) {
+          throw new Error("🔒 This repo is private. Click \"Authorize with GitHub\" below to connect your account first.");
+        }
+        throw new Error(text);
+      }
+      const data: RepoScan = JSON.parse(text);
+      if (!data.options?.length) throw new Error("No deployable components detected in this repo.\n\nSupported: Next.js, React, Vue, Express, FastAPI, Flask, Django, Go, static HTML");
+      setScan(data);
+      const defaults: Record<string, string> = {};
+      (data.env_vars ?? []).forEach((k) => (defaults[k] = ""));
+      setEnvVars(defaults);
+      setPhase("pick");
+    } catch (e) {
+      setErrMsg(String(e));
+      setPhase("error");
+    }
+  }
+
   // ── stage labels ─────────────────────────────────────────────────────────────
 
-  const stageStatus = (s: Phase[]) =>
-    s.includes(phase) ? "active" : (
-      phase === "done" || (s[0] === "repo" && ["scanning","pick","vm","deploying","done"].includes(phase)) ||
-      (s[0] === "pick" && ["vm","deploying","done"].includes(phase)) ||
-      (s[0] === "vm" && ["deploying","done"].includes(phase))
-        ? "done" : "pending"
-    );
+  const stageStatus = (s: Phase[]) => {
+    if (s.includes(phase)) return "active";
+    const after = (pivot: Phase) => ["repos","scanning","pick","vm","deploying","done"].indexOf(phase) > ["repos","scanning","pick","vm","deploying","done"].indexOf(pivot);
+    if (s.includes("repo") && after("scanning")) return "done";
+    if (s.includes("pick") && after("pick")) return "done";
+    if (s.includes("vm") && after("vm")) return "done";
+    return "pending";
+  };
 
   const stages = [
-    { id: ["repo", "scanning"] as Phase[], label: "Connect Repository", sub: githubConnected ? "GitHub OAuth" : repoURL ? repoURL.split("/").slice(-1)[0] : "Link source code" },
+    { id: ["repo","repos","scanning"] as Phase[], label: "Connect Repository", sub: repoURL ? repoURL.split("/").slice(-1)[0] : githubConnected ? "GitHub connected" : "Link source code" },
     { id: ["pick"] as Phase[], label: "Detect Stack", sub: scan ? `${scan.options.length} option${scan.options.length !== 1 ? "s" : ""} found` : "Auto-detect framework" },
     { id: ["vm"] as Phase[], label: "Configure VM", sub: `${ram} · ${cpu}` },
-    { id: ["deploying", "done"] as Phase[], label: "Deploy", sub: deployResult ? deployResult.framework : "Encrypted workspace" },
+    { id: ["deploying","done"] as Phase[], label: "Deploy", sub: deployResult ? deployResult.framework : "Encrypted workspace" },
   ];
 
   return (
@@ -326,47 +372,109 @@ export default function DeployPage() {
             {/* Right: active panel */}
             <div style={{ background: "#161618", border: "1px solid #2C2C2E", borderRadius: 12, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-              {/* ── Stage 1: Connect repo ── */}
-              {(phase === "repo" || phase === "scanning") && (
-                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
-                  <div>
-                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Connect Repository</p>
-                    <p style={{ fontSize: 12, color: "#6B7280" }}>Paste a public GitHub URL or authorize for private repos</p>
+              {/* ── Stage 1: Connect repo / repo picker ── */}
+              {(phase === "repo" || phase === "repos" || phase === "scanning") && (
+                <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+
+                  {/* Header */}
+                  <div style={{ padding: "20px 24px", borderBottom: "1px solid #2C2C2E" }}>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Import Git Repository</p>
+                    <p style={{ fontSize: 12, color: "#6B7280" }}>
+                      {githubConnected ? `Connected as ${githubWallet.slice(0,6)}…${githubWallet.slice(-4)}` : "Connect GitHub for private repos or paste a public URL"}
+                    </p>
                   </div>
 
-                  <div style={{ display: "flex", gap: 8 }}>
+                  {/* GitHub connect / paste URL */}
+                  <div style={{ padding: "16px 24px", borderBottom: "1px solid #1C1C1E", display: "flex", gap: 8 }}>
+                    {!githubConnected ? (
+                      <button
+                        onClick={connectGitHub}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", borderRadius: 8, background: "#21262D", border: "1px solid #30363D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+                      >
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                        Connect GitHub
+                      </button>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, background: "rgba(40,167,69,0.1)", border: "1px solid rgba(40,167,69,0.25)", fontSize: 12, color: "#28A745", fontWeight: 600 }}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        GitHub Connected
+                      </div>
+                    )}
                     <input
                       type="text"
-                      placeholder="https://github.com/owner/repo"
+                      placeholder="Or paste a URL: https://github.com/owner/repo"
                       value={repoURL}
                       onChange={(e) => setRepoURL(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleScan()}
-                      style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #2C2C2E", background: "#0A0A0A", color: "#E5E7EB", fontSize: 13, outline: "none" }}
+                      style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: "1px solid #2C2C2E", background: "#0A0A0A", color: "#E5E7EB", fontSize: 13, outline: "none" }}
                     />
                     <button
                       onClick={handleScan}
                       disabled={!repoURL.trim() || phase === "scanning"}
-                      style={{ padding: "10px 20px", borderRadius: 8, background: "#7c45ff", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: !repoURL.trim() ? 0.4 : 1 }}
+                      style={{ padding: "9px 18px", borderRadius: 8, background: "#7c45ff", color: "#fff", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: !repoURL.trim() ? 0.4 : 1, whiteSpace: "nowrap" }}
                     >
-                      {phase === "scanning" ? "Scanning…" : "Scan →"}
+                      {phase === "scanning" ? "Scanning…" : "Import"}
                     </button>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ flex: 1, height: 1, background: "#2C2C2E" }} />
-                    <span style={{ fontSize: 11, color: "#4B5563" }}>or connect private repos</span>
-                    <div style={{ flex: 1, height: 1, background: "#2C2C2E" }} />
-                  </div>
+                  {/* Repo search (only when connected) */}
+                  {githubConnected && (
+                    <div style={{ padding: "12px 24px", borderBottom: "1px solid #1C1C1E" }}>
+                      <input
+                        type="text"
+                        placeholder="Search repositories…"
+                        value={repoSearch}
+                        onChange={(e) => setRepoSearch(e.target.value)}
+                        style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: "1px solid #2C2C2E", background: "#0A0A0A", color: "#E5E7EB", fontSize: 13, outline: "none", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  )}
 
-                  <button
-                    onClick={connectGitHub}
-                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "10px 16px", borderRadius: 8, background: githubConnected ? "rgba(40,167,69,0.1)" : "#21262D", border: `1px solid ${githubConnected ? "rgba(40,167,69,0.3)" : "#30363D"}`, color: githubConnected ? "#28A745" : "#E5E7EB", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/>
-                    </svg>
-                    {githubConnected ? "GitHub Connected ✓" : "Authorize with GitHub"}
-                  </button>
+                  {/* Repo list */}
+                  <div style={{ flex: 1, overflowY: "auto" }}>
+                    {loadingRepos && (
+                      <div style={{ padding: 24, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading repositories…</div>
+                    )}
+                    {!loadingRepos && githubConnected && repos.length === 0 && (
+                      <div style={{ padding: 24, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No repositories found.</div>
+                    )}
+                    {repos
+                      .filter((r) => !repoSearch || r.full_name.toLowerCase().includes(repoSearch.toLowerCase()))
+                      .map((repo) => (
+                        <button
+                          key={repo.full_name}
+                          onClick={() => selectRepo(repo)}
+                          disabled={phase === "scanning"}
+                          style={{ width: "100%", textAlign: "left", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", borderBottom: "1px solid #1C1C1E", cursor: "pointer", gap: 12 }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = "#161618")}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                            <div style={{ minWidth: 0 }}>
+                              <p style={{ fontSize: 13, fontWeight: 600, color: "#F3F4F6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {repo.full_name}
+                              </p>
+                              {repo.description && (
+                                <p style={{ fontSize: 11, color: "#4B5563", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{repo.description}</p>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                            {repo.language && <span style={{ fontSize: 11, color: "#6B7280" }}>{repo.language}</span>}
+                            {repo.private && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "#2A2A2D", color: "#9CA3AF" }}>Private</span>}
+                            <span style={{ fontSize: 12, color: "#7c45ff", fontWeight: 600 }}>Import →</span>
+                          </div>
+                        </button>
+                      ))
+                    }
+                    {!githubConnected && phase === "repo" && (
+                      <div style={{ padding: 32, textAlign: "center", color: "#4B5563", fontSize: 13 }}>
+                        Connect GitHub to see your repositories<br />
+                        <span style={{ fontSize: 11 }}>or paste a public URL above</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
