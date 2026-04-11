@@ -3,6 +3,7 @@ package scanner
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 
@@ -46,12 +47,22 @@ func ScanRepo(ctx context.Context, repoURL string, token ...string) (*RepoScan, 
 		Depth: 1,
 	})
 	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "authentication required") || strings.Contains(errMsg, "Repository not found") {
+			return nil, fmt.Errorf("private repo or not found — connect GitHub via /auth/github?wallet=<your_wallet> first")
+		}
 		return nil, err
 	}
 
 	scan := &RepoScan{RepoURL: repoURL}
 	scan.Options = detectOptions(dir)
+	if scan.Options == nil {
+		scan.Options = []DeployOption{} // never return null
+	}
 	scan.EnvVars = detectEnvVars(dir)
+	if scan.EnvVars == nil {
+		scan.EnvVars = []string{}
+	}
 	return scan, nil
 }
 

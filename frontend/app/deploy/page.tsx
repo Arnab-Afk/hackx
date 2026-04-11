@@ -137,8 +137,15 @@ export default function DeployPage() {
         body: JSON.stringify({ repo_url: repoURL.trim(), wallet: address ?? "" }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const data: RepoScan = await res.json();
-      if (!data.options?.length) throw new Error("No deployable components detected. Is this a supported project?");
+      const text = await res.text();
+      if (!res.ok) {
+        if (text.includes("private repo") || text.includes("connect GitHub")) {
+          throw new Error("🔒 This repo is private. Click \"Authorize with GitHub\" below to connect your account first.");
+        }
+        throw new Error(text);
+      }
+      const data: RepoScan = JSON.parse(text);
+      if (!data.options?.length) throw new Error("No deployable components detected in this repo.\n\nSupported: Next.js, React, Vue, Express, FastAPI, Flask, Django, Go, static HTML");
       setScan(data);
       // pre-fill env var keys
       const defaults: Record<string, string> = {};
@@ -534,11 +541,24 @@ export default function DeployPage() {
               {/* ── Error ── */}
               {phase === "error" && (
                 <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 12 }}>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: "#DC3545" }}>Something went wrong</p>
-                  <pre style={{ fontSize: 11, fontFamily: "monospace", color: "#6B7280", whiteSpace: "pre-wrap", background: "#0A0A0A", border: "1px solid #2C2C2E", borderRadius: 8, padding: 12 }}>{errMsg}</pre>
-                  <button onClick={() => setPhase("repo")} style={{ alignSelf: "flex-start", padding: "8px 16px", borderRadius: 8, background: "#2A2A2D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>
-                    ← Try again
-                  </button>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: "#DC3545" }}>
+                    {errMsg.includes("private") ? "🔒 Private Repository" : "Something went wrong"}
+                  </p>
+                  <pre style={{ fontSize: 12, fontFamily: "monospace", color: "#9CA3AF", whiteSpace: "pre-wrap", background: "#0A0A0A", border: "1px solid #2C2C2E", borderRadius: 8, padding: 12 }}>{errMsg}</pre>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {errMsg.includes("private") && (
+                      <button
+                        onClick={connectGitHub}
+                        style={{ padding: "8px 16px", borderRadius: 8, background: "#21262D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "1px solid #30363D", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                        Connect GitHub
+                      </button>
+                    )}
+                    <button onClick={() => setPhase("repo")} style={{ padding: "8px 16px", borderRadius: 8, background: "#2A2A2D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>
+                      ← Try again
+                    </button>
+                  </div>
                 </div>
               )}
 
