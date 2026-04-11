@@ -51,6 +51,7 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 
 	r.Post("/workspaces", srv.allocateWorkspace)
 	r.Get("/workspaces/{containerID}/status", srv.workspaceStatus)
+	r.Get("/workspaces/{containerID}/ssh", srv.sshGateway) // WebSocket SSH terminal
 	r.Delete("/workspaces/{containerID}", srv.destroyWorkspace)
 
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

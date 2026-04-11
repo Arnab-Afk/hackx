@@ -206,6 +206,9 @@ exec /usr/sbin/sshd -D
 		CreatedAt:   time.Now().UTC(),
 	}
 
+	// Store SSH credentials so the gateway can look them up later.
+	m.RegisterWorkspace(ws)
+
 	go func() {
 		if waitForSSH(fmt.Sprintf("localhost:%d", sshPort), 5*time.Minute) {
 			ws.Status = "ready"

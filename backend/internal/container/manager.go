@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/netip"
 	"strings"
+	"sync"
 	"time"
 
 	dockerclient "github.com/moby/moby/client"
@@ -60,6 +61,8 @@ type HealthStatus struct {
 
 type Manager struct {
 	client *dockerclient.Client
+	wsMu   sync.RWMutex
+	wsReg  map[string]*WorkspaceInfo // containerID (short or full) → info
 }
 
 func NewManager(host string) (*Manager, error) {
@@ -77,7 +80,28 @@ func NewManager(host string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	return &Manager{client: cli}, nil
+	return &Manager{client: cli, wsReg: make(map[string]*WorkspaceInfo)}, nil
+}
+
+// RegisterWorkspace stores workspace SSH credentials in memory so the SSH
+// gateway can look them up later without hitting the database.
+func (m *Manager) RegisterWorkspace(ws *WorkspaceInfo) {
+	m.wsMu.Lock()
+	defer m.wsMu.Unlock()
+	m.wsReg[ws.ContainerID] = ws // short ID (12 chars)
+}
+
+// GetWorkspaceInfo returns the workspace info for a given container ID (short
+// or full — only short IDs are stored so we truncate to 12 chars if longer).
+func (m *Manager) GetWorkspaceInfo(containerID string) (*WorkspaceInfo, bool) {
+	key := containerID
+	if len(key) > 12 {
+		key = key[:12]
+	}
+	m.wsMu.RLock()
+	defer m.wsMu.RUnlock()
+	ws, ok := m.wsReg[key]
+	return ws, ok
 }
 
 // CreateContainer pulls the image if needed and starts a container for the team.
