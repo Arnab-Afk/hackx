@@ -2,135 +2,147 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { MOCK_SESSIONS } from "@/lib/mockData";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
-type EventItem =
-  | { type: "message"; message: string }
-  | { type: "action"; action: { index: number; tool: string; input: Record<string, unknown>; result: unknown; error?: string; timestamp: string; hash: string } }
-  | { type: "plan"; plan: { summary: string; estimated_cost_per_hour: number; containers: unknown[]; has_smart_contracts: boolean; status: string } }
-  | { type: "done"; message: string }
-  | { type: "error"; message: string };
-
-function getOrCreateTeam(): Promise<string> {
-  const stored = localStorage.getItem("zkloud_team_id");
-  if (stored) return Promise.resolve(stored);
-
-  const name = "team-" + Math.random().toString(36).slice(2, 9);
-  return fetch(`${API}/teams`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, public_key: "" }),
-  })
-    .then((r) => r.json())
-    .then((t) => {
-      localStorage.setItem("zkloud_team_id", t.id);
-      localStorage.setItem("zkloud_team_name", t.name);
-      return t.id as string;
-    });
-}
-
-const toolIcons: Record<string, string> = {
-  analyze_repo: "🔍",
-  generate_deployment_plan: "📋",
-  create_container: "📦",
-  install_packages: "⬇️",
-  configure_network: "🌐",
-  setup_ide: "💻",
-  setup_database: "🗄️",
-  health_check: "💚",
-  get_logs: "📜",
-  destroy_container: "🗑️",
+type Project = {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
 };
 
+type VMConfig = {
+  ram: "1gb" | "2gb" | "4gb" | "8gb";
+  cpu: "1 core" | "2 core" | "4 core";
+};
+
+const RAM_OPTIONS: VMConfig["ram"][] = ["1gb", "2gb", "4gb", "8gb"];
+const CPU_OPTIONS: VMConfig["cpu"][] = ["1 core", "2 core", "4 core"];
+
+function truncate(str: string, n: number) {
+  return str.length > n ? str.slice(0, n) + "…" : str;
+}
+
 export default function DeployPage() {
-  const [prompt, setPrompt] = useState("");
-  const [repoUrl, setRepoUrl] = useState("");
-  const [phase, setPhase] = useState<"idle" | "running" | "done" | "error">("idle");
-  const [events, setEvents] = useState<EventItem[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [vmConfig, setVmConfig] = useState<VMConfig>({ ram: "2gb", cpu: "2 core" });
+  const [phase, setPhase] = useState<"idle" | "deploying" | "done" | "error">("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [plan, setPlan] = useState<EventItem & { type: "plan" } | null>(null);
-  const [doneMsg, setDoneMsg] = useState("");
   const [errMsg, setErrMsg] = useState("");
-  const streamRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [teamName, setTeamName] = useState("Your");
 
-  // Auto-scroll stream
   useEffect(() => {
-    if (streamRef.current) {
-      streamRef.current.scrollTop = streamRef.current.scrollHeight;
-    }
-  }, [events]);
+    const storedTeamName = localStorage.getItem("zkloud_team_name");
+    if (storedTeamName) setTeamName(storedTeamName);
 
-  function pushEvent(e: EventItem) {
-    setEvents((prev) => [...prev, e]);
-  }
+    // Load projects from sessions
+    const sessionIds: string[] = JSON.parse(localStorage.getItem("comput3_sessions") ?? "[]");
+    if (sessionIds.length > 0) {
+      Promise.all(
+        sessionIds.slice(0, 10).map((id) =>
+          fetch(`${API}/sessions/${id}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null)
+        )
+      ).then((results) => {
+        const real = results.filter(Boolean);
+        if (real.length > 0) {
+          setProjects(
+            real.map((s: { id: string; prompt: string; state: string }) => ({
+              id: s.id,
+              name: truncate(s.prompt, 40),
+              description: s.prompt,
+              status: s.state,
+            }))
+          );
+        } else {
+          setProjects(
+            MOCK_SESSIONS.map((s) => ({
+              id: s.id,
+              name: truncate(s.prompt, 40),
+              description: s.prompt,
+              status: s.state,
+            }))
+          );
+        }
+      });
+    } else {
+      setProjects(
+        MOCK_SESSIONS.map((s) => ({
+          id: s.id,
+          name: truncate(s.prompt, 40),
+          description: s.prompt,
+          status: s.state,
+        }))
+      );
+    }
+  }, []);
 
   async function handleDeploy() {
-    if (!prompt.trim() && !repoUrl.trim()) return;
-    setPhase("running");
-    setEvents([]);
-    setPlan(null);
-    setDoneMsg("");
+    if (!selectedProjectId) return;
+    setPhase("deploying");
     setErrMsg("");
 
-    let teamId: string;
-    try {
-      teamId = await getOrCreateTeam();
-    } catch {
-      setPhase("error");
-      setErrMsg("Failed to register team. Is the backend running?");
-      return;
+    let teamId = localStorage.getItem("zkloud_team_id");
+    if (!teamId) {
+      const name = "team-" + Math.random().toString(36).slice(2, 9);
+      try {
+        const res = await fetch(`${API}/teams`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, public_key: "" }),
+        });
+        const t = await res.json();
+        localStorage.setItem("zkloud_team_id", t.id);
+        localStorage.setItem("zkloud_team_name", t.name);
+        teamId = t.id;
+      } catch {
+        setPhase("error");
+        setErrMsg("Failed to register team. Is the backend running?");
+        return;
+      }
     }
 
-    let sess: { id: string };
+    const project = projects.find((p) => p.id === selectedProjectId);
     try {
       const res = await fetch(`${API}/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ team_id: teamId, prompt: prompt || undefined, repo_url: repoUrl || undefined }),
+        body: JSON.stringify({
+          team_id: teamId,
+          prompt: project?.description ?? "",
+          vm_config: { ram: vmConfig.ram, cpu: vmConfig.cpu },
+        }),
       });
       if (!res.ok) throw new Error(await res.text());
-      sess = await res.json();
+      const sess = await res.json();
+      setSessionId(sess.id);
+      try {
+        const existing: string[] = JSON.parse(localStorage.getItem("comput3_sessions") ?? "[]");
+        const updated = [sess.id, ...existing.filter((id) => id !== sess.id)].slice(0, 50);
+        localStorage.setItem("comput3_sessions", JSON.stringify(updated));
+      } catch { /* ignore */ }
+      setPhase("done");
     } catch (e) {
       setPhase("error");
       setErrMsg(String(e));
-      return;
     }
-
-    setSessionId(sess.id);
-
-    const wsBase = API.replace(/^http/, "ws");
-    const ws = new WebSocket(`${wsBase}/sessions/${sess.id}/stream`);
-    wsRef.current = ws;
-
-    ws.onmessage = (msg) => {
-      const evt: EventItem = JSON.parse(msg.data);
-      if (evt.type === "plan") setPlan(evt as EventItem & { type: "plan" });
-      if (evt.type === "done") { setDoneMsg(evt.message); setPhase("done"); }
-      if (evt.type === "error") { setErrMsg(evt.message); setPhase("error"); }
-      pushEvent(evt);
-    };
-
-    ws.onerror = () => {
-      setPhase("error");
-      setErrMsg("WebSocket connection failed.");
-    };
   }
-
-  const canDeploy = (prompt.trim() || repoUrl.trim()) && phase !== "running";
 
   return (
     <div
       className="min-h-screen"
       style={{ background: "#0e0e0e", color: "#d1d5db", fontFamily: "var(--font-inter), sans-serif" }}
     >
-      {/* Nav */}
+      {/* Header */}
       <header
         className="flex items-center justify-between px-6 py-4"
         style={{ borderBottom: "1px solid #1f2937" }}
       >
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <Link
             href="/"
             className="flex items-center gap-2 text-sm transition-opacity hover:opacity-70"
@@ -144,242 +156,210 @@ export default function DeployPage() {
           <span style={{ color: "#374151" }}>/</span>
           <span className="text-sm font-semibold" style={{ color: "#f3f4f6" }}>New Deployment</span>
         </div>
-        {sessionId && (
-          <Link
-            href={`/sessions/${sessionId}`}
-            className="text-xs px-3 py-1 rounded-full transition-opacity hover:opacity-80"
-            style={{ background: "#1f2937", color: "#9ca3af", border: "1px solid #374151" }}
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-2">
+          <button
+            className="px-4 py-1.5 rounded-sm text-xs font-semibold transition-opacity hover:opacity-80"
+            style={{ background: "#1f2937", color: "#d1d5db", border: "1px solid #374151" }}
           >
-            Session: {sessionId.slice(0, 20)}…
-          </Link>
-        )}
+            + New project
+          </button>
+          <button
+            className="px-4 py-1.5 rounded-sm text-xs font-semibold transition-opacity hover:opacity-80"
+            style={{ background: "#5c6e8c", color: "#ffffff" }}
+          >
+            + New VM
+          </button>
+        </div>
       </header>
 
-      <div className="max-w-4xl mx-auto px-6 py-10">
-        {/* Hero text */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2" style={{ color: "#f3f4f6", letterSpacing: "-0.02em" }}>
-            Deploy with AI
-          </h1>
-          <p className="text-sm" style={{ color: "#6b7280" }}>
-            Describe your stack in plain English or paste a GitHub URL. The agent provisions everything in seconds with a cryptographic audit trail.
-          </p>
-        </div>
+      <div className="px-6 py-8 max-w-5xl mx-auto">
+        {/* Two-column layout */}
+        <div className="flex gap-6" style={{ minHeight: "420px" }}>
 
-        {/* Input area */}
-        <div className="rounded-2xl p-5 mb-6" style={{ background: "#151515", border: "1px solid #1f2937" }}>
-          <label className="block text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#6b7280" }}>
-            What do you want to deploy?
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="e.g. Deploy a React frontend with a Node.js API and Postgres database"
-            rows={4}
-            disabled={phase === "running"}
-            className="w-full bg-transparent resize-none text-sm outline-none placeholder:opacity-30 disabled:opacity-40"
-            style={{ color: "#f3f4f6", fontFamily: "var(--font-inter), sans-serif" }}
-          />
-          <div className="mt-4 pt-4" style={{ borderTop: "1px solid #1f2937" }}>
-            <label className="block text-xs font-semibold uppercase tracking-widest mb-2" style={{ color: "#6b7280" }}>
-              GitHub URL <span style={{ color: "#374151" }}>(optional)</span>
-            </label>
-            <input
-              type="url"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/user/repo"
-              disabled={phase === "running"}
-              className="w-full bg-transparent text-sm outline-none placeholder:opacity-30 disabled:opacity-40"
-              style={{ color: "#f3f4f6", fontFamily: "var(--font-space-mono), monospace" }}
-            />
-          </div>
-        </div>
-
-        <button
-          onClick={handleDeploy}
-          disabled={!canDeploy}
-          className="w-full py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          style={{
-            background: phase === "running" ? "#1f2937" : "linear-gradient(135deg, #5c6e8c, #3b82f6)",
-            color: "#fff",
-            border: "none",
-          }}
-        >
-          {phase === "running" ? (
-            <span className="flex items-center justify-center gap-2">
-              <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-              </svg>
-              Agent working…
-            </span>
-          ) : "Deploy →"}
-        </button>
-
-        {/* Event stream */}
-        {events.length > 0 && (
-          <div className="mt-8">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#6b7280" }}>
-                Agent Activity
+          {/* Left: Project list */}
+          <div className="flex-1 rounded-sm" style={{ background: "#181818", border: "1px solid #1f2937" }}>
+            <div className="px-5 py-4" style={{ borderBottom: "1px solid #1f2937" }}>
+              <h2 className="text-sm font-semibold" style={{ color: "#f3f4f6" }}>
+                <span style={{ color: "#5c6e8c" }}>{teamName}</span>
+                {" — "}Projects
               </h2>
-              {sessionId && (
-                <Link href={`/sessions/${sessionId}`} className="text-xs hover:underline" style={{ color: "#5c6e8c" }}>
-                  View full audit log →
-                </Link>
-              )}
             </div>
-            <div
-              ref={streamRef}
-              className="rounded-2xl overflow-y-auto p-4 space-y-2"
-              style={{ background: "#0a0a0a", border: "1px solid #1f2937", maxHeight: "420px" }}
-            >
-              {events.map((evt, i) => (
-                <EventRow key={i} evt={evt} />
+            <div className="p-3 flex flex-col gap-1">
+              {projects.length === 0 && (
+                <p className="text-xs py-8 text-center" style={{ color: "#4b5563" }}>No projects found.</p>
+              )}
+              {projects.map((project) => (
+                <button
+                  key={project.id}
+                  onClick={() => setSelectedProjectId(project.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-sm text-left transition-colors"
+                  style={{
+                    background: selectedProjectId === project.id ? "#1f2937" : "transparent",
+                    border: `1px solid ${selectedProjectId === project.id ? "#374151" : "transparent"}`,
+                  }}
+                >
+                  {/* Radio */}
+                  <div
+                    className="shrink-0 w-4 h-4 rounded-full flex items-center justify-center"
+                    style={{
+                      border: `2px solid ${selectedProjectId === project.id ? "#5c6e8c" : "#374151"}`,
+                    }}
+                  >
+                    {selectedProjectId === project.id && (
+                      <div className="w-2 h-2 rounded-full" style={{ background: "#5c6e8c" }} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate" style={{ color: "#e5e7eb" }}>{project.name}</p>
+                    <p className="text-xs mt-0.5" style={{ color: "#4b5563", fontFamily: "var(--font-space-mono), monospace" }}>
+                      {project.id.slice(0, 16)}…
+                    </p>
+                  </div>
+                  <span
+                    className="shrink-0 text-xs px-2 py-0.5 rounded-sm"
+                    style={{
+                      background: project.status === "completed" ? "#052e16" : project.status === "failed" ? "#1c0a0a" : "#1f2937",
+                      color: project.status === "completed" ? "#4ade80" : project.status === "failed" ? "#f87171" : "#9ca3af",
+                    }}
+                  >
+                    {project.status}
+                  </span>
+                </button>
               ))}
             </div>
           </div>
-        )}
 
-        {/* Plan card */}
-        {plan && (
-          <div className="mt-6 rounded-2xl p-5" style={{ background: "#151515", border: "1px solid #374151" }}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-lg">📋</span>
-              <h3 className="font-bold text-sm" style={{ color: "#f3f4f6" }}>Deployment Plan</h3>
-              <span
-                className="ml-auto text-xs px-2 py-0.5 rounded-full"
-                style={{ background: "#1f2937", color: "#fbbf24" }}
-              >
-                Pending
-              </span>
-            </div>
-            <p className="text-sm mb-4" style={{ color: "#9ca3af" }}>{plan.plan.summary}</p>
-            <div className="flex gap-6 text-sm">
-              <div>
-                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#6b7280" }}>Est. Cost</div>
-                <div className="font-bold" style={{ color: "#34d399" }}>${plan.plan.estimated_cost_per_hour.toFixed(3)}/hr</div>
+          {/* Right: VM Config */}
+          <div
+            className="rounded-sm p-5 flex flex-col gap-5"
+            style={{ width: "220px", background: "#181818", border: "1px solid #1f2937", flexShrink: 0 }}
+          >
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#6b7280" }}>
+                VM Config
+              </p>
+
+              {/* RAM */}
+              <p className="text-xs mb-2" style={{ color: "#9ca3af" }}>RAM</p>
+              <div className="flex flex-col gap-1.5 mb-5">
+                {RAM_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setVmConfig((v) => ({ ...v, ram: opt }))}
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm text-left text-xs transition-colors"
+                    style={{
+                      background: vmConfig.ram === opt ? "#1f2937" : "transparent",
+                      border: `1px solid ${vmConfig.ram === opt ? "#5c6e8c" : "#1f2937"}`,
+                      color: vmConfig.ram === opt ? "#f3f4f6" : "#6b7280",
+                      fontFamily: "var(--font-space-mono), monospace",
+                    }}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full shrink-0 flex items-center justify-center"
+                      style={{ border: `1.5px solid ${vmConfig.ram === opt ? "#5c6e8c" : "#374151"}` }}
+                    >
+                      {vmConfig.ram === opt && (
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#5c6e8c" }} />
+                      )}
+                    </div>
+                    {opt}
+                  </button>
+                ))}
               </div>
-              {plan.plan.containers && Array.isArray(plan.plan.containers) && (
-                <div>
-                  <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#6b7280" }}>Containers</div>
-                  <div className="font-bold" style={{ color: "#f3f4f6" }}>{plan.plan.containers.length}</div>
-                </div>
-              )}
-              {plan.plan.has_smart_contracts && (
-                <div>
-                  <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "#6b7280" }}>On-Chain</div>
-                  <div className="font-bold" style={{ color: "#a78bfa" }}>Smart Contracts</div>
-                </div>
+
+              {/* CPU */}
+              <p className="text-xs mb-2" style={{ color: "#9ca3af" }}>CPU</p>
+              <div className="flex flex-col gap-1.5">
+                {CPU_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => setVmConfig((v) => ({ ...v, cpu: opt }))}
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm text-left text-xs transition-colors"
+                    style={{
+                      background: vmConfig.cpu === opt ? "#1f2937" : "transparent",
+                      border: `1px solid ${vmConfig.cpu === opt ? "#5c6e8c" : "#1f2937"}`,
+                      color: vmConfig.cpu === opt ? "#f3f4f6" : "#6b7280",
+                      fontFamily: "var(--font-space-mono), monospace",
+                    }}
+                  >
+                    <div
+                      className="w-3 h-3 rounded-full shrink-0 flex items-center justify-center"
+                      style={{ border: `1.5px solid ${vmConfig.cpu === opt ? "#5c6e8c" : "#374151"}` }}
+                    >
+                      {vmConfig.cpu === opt && (
+                        <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#5c6e8c" }} />
+                      )}
+                    </div>
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Deploy button */}
+        <div className="flex justify-center mt-8">
+          <button
+            onClick={handleDeploy}
+            disabled={!selectedProjectId || phase === "deploying"}
+            className="flex flex-col items-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed group"
+          >
+            <div
+              className="w-12 h-12 rounded-sm flex items-center justify-center transition-colors"
+              style={{
+                background: phase === "deploying" ? "#1f2937" : "#5c6e8c",
+              }}
+            >
+              {phase === "deploying" ? (
+                <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="white" strokeWidth="4" />
+                  <path className="opacity-75" fill="white" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14" /><path d="m19 12-7 7-7-7" />
+                </svg>
               )}
             </div>
-            <p className="text-xs mt-4" style={{ color: "#4b5563" }}>
-              The agent is proceeding with provisioning. You can track progress in the activity log above.
-            </p>
-          </div>
-        )}
+            <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#6b7280" }}>
+              {phase === "deploying" ? "Deploying…" : "Deploy"}
+            </span>
+          </button>
+        </div>
 
-        {/* Done card */}
-        {phase === "done" && (
-          <div className="mt-6 rounded-2xl p-5" style={{ background: "#0d1f17", border: "1px solid #166534" }}>
+        {/* Status cards */}
+        {phase === "done" && sessionId && (
+          <div className="mt-6 rounded-sm p-5" style={{ background: "#181818", border: "1px solid #1f2937" }}>
             <div className="flex items-center gap-2 mb-2">
-              <span className="w-2 h-2 rounded-full" style={{ background: "#22c55e" }} />
-              <h3 className="font-bold text-sm" style={{ color: "#4ade80" }}>Deployment Complete</h3>
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#22c55e" }} />
+              <h3 className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#22c55e" }}>Deployment started</h3>
             </div>
-            <p className="text-sm" style={{ color: "#86efac" }}>{doneMsg}</p>
-            {sessionId && (
-              <Link
-                href={`/sessions/${sessionId}`}
-                className="inline-block mt-4 text-xs px-4 py-2 rounded-lg font-semibold transition-opacity hover:opacity-80"
-                style={{ background: "#166534", color: "#4ade80" }}
-              >
-                View Audit Log & Attestation →
-              </Link>
-            )}
+            <p className="text-sm" style={{ color: "#9ca3af" }}>
+              Session <span style={{ fontFamily: "var(--font-space-mono), monospace" }}>{sessionId.slice(0, 20)}…</span> is now running.
+            </p>
+            <Link
+              href={`/sessions/${sessionId}`}
+              className="inline-block mt-4 text-xs px-4 py-2 rounded-sm font-semibold transition-opacity hover:opacity-80"
+              style={{ background: "#1f2937", color: "#d1d5db" }}
+            >
+              View audit log &amp; attestation →
+            </Link>
           </div>
         )}
 
-        {/* Error card */}
         {phase === "error" && (
-          <div className="mt-6 rounded-2xl p-4" style={{ background: "#1a0a0a", border: "1px solid #7f1d1d" }}>
+          <div className="mt-6 rounded-sm p-4" style={{ background: "#181818", border: "1px solid #1f2937" }}>
             <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full" style={{ background: "#ef4444" }} />
-              <h3 className="font-bold text-sm" style={{ color: "#f87171" }}>Deployment Failed</h3>
+              <div className="w-1.5 h-1.5 rounded-full" style={{ background: "#ef4444" }} />
+              <h3 className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#ef4444" }}>Deployment failed</h3>
             </div>
-            <p className="text-xs" style={{ color: "#fca5a5", fontFamily: "var(--font-space-mono), monospace" }}>{errMsg}</p>
+            <p className="mt-1 text-xs" style={{ color: "#6b7280", fontFamily: "var(--font-space-mono), monospace" }}>{errMsg || "Backend unavailable — running in demo mode."}</p>
           </div>
         )}
       </div>
     </div>
   );
-}
-
-function EventRow({ evt }: { evt: EventItem }) {
-  if (evt.type === "message") {
-    return (
-      <div className="flex gap-3 items-start">
-        <span className="text-xs mt-0.5" style={{ color: "#6b7280" }}>●</span>
-        <p className="text-sm" style={{ color: "#9ca3af" }}>{evt.message}</p>
-      </div>
-    );
-  }
-
-  if (evt.type === "action") {
-    const { tool, input, result, error, hash } = evt.action;
-    const icon = toolIcons[tool] ?? "⚙️";
-    const hasError = !!error;
-    return (
-      <div
-        className="rounded-xl p-3"
-        style={{
-          background: hasError ? "#1a0a0a" : "#111827",
-          border: `1px solid ${hasError ? "#7f1d1d" : "#1f2937"}`,
-        }}
-      >
-        <div className="flex items-center gap-2 mb-1">
-          <span>{icon}</span>
-          <span className="text-xs font-semibold" style={{ color: hasError ? "#f87171" : "#e5e7eb", fontFamily: "var(--font-space-mono), monospace" }}>
-            {tool}
-          </span>
-          {hasError ? (
-            <span className="ml-auto text-xs" style={{ color: "#ef4444" }}>failed</span>
-          ) : (
-            <span className="ml-auto text-xs" style={{ color: "#22c55e" }}>✓</span>
-          )}
-        </div>
-        <div className="text-xs" style={{ color: "#4b5563", fontFamily: "var(--font-space-mono), monospace" }}>
-          {JSON.stringify(input, null, 0).slice(0, 120)}{JSON.stringify(input).length > 120 ? "…" : ""}
-        </div>
-        {(result || error) && (
-          <div className="mt-1 text-xs" style={{ color: hasError ? "#fca5a5" : "#6b7280", fontFamily: "var(--font-space-mono), monospace" }}>
-            {error ?? JSON.stringify(result, null, 0).slice(0, 100)}
-          </div>
-        )}
-        <div className="mt-2 text-xs truncate" style={{ color: "#374151", fontFamily: "var(--font-space-mono), monospace" }}>
-          {hash}
-        </div>
-      </div>
-    );
-  }
-
-  if (evt.type === "done") {
-    return (
-      <div className="flex items-center gap-2 py-1">
-        <span className="w-2 h-2 rounded-full" style={{ background: "#22c55e" }} />
-        <span className="text-xs font-semibold" style={{ color: "#4ade80" }}>{evt.message}</span>
-      </div>
-    );
-  }
-
-  if (evt.type === "error") {
-    return (
-      <div className="flex items-center gap-2 py-1">
-        <span className="w-2 h-2 rounded-full" style={{ background: "#ef4444" }} />
-        <span className="text-xs" style={{ color: "#f87171" }}>{evt.message}</span>
-      </div>
-    );
-  }
-
-  return null;
 }
