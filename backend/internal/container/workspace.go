@@ -7,11 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/moby/moby/api/types/container"
-	"github.com/moby/moby/api/types/network"
 	dockerclient "github.com/moby/moby/client"
 )
 
@@ -37,32 +36,38 @@ type WorkspaceInfo struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// AllocateWorkspace creates an Ubuntu container with SSH + sudo, waits until
-// SSH is accepting connections, then returns credentials.
+// AllocateWorkspace creates an Ubuntu container with host networking (for
+// internet access), SSH + sudo, resource limits, and waits until SSH is ready.
 func (m *Manager) AllocateWorkspace(ctx context.Context, cfg WorkspaceConfig) (*WorkspaceInfo, error) {
 	password := randomHex(16)
 	username := "hackx"
 
-	// Inline setup script: installs SSH, creates user, starts sshd in foreground.
-	// This runs as PID 1 so the container stays alive as long as sshd is running.
+	// Pick a free port on the host for sshd to bind to.
+	// With network_mode: host, port bindings are ignored — sshd must listen on
+	// a specific port we choose here.
+	sshPort, err := freePort()
+	if err != nil {
+		return nil, fmt.Errorf("find free port: %w", err)
+	}
+
+	// Inline setup script. Runs as PID 1; sshd takes over at the end.
 	setup := fmt.Sprintf(`
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq openssh-server sudo curl wget git vim nano unzip build-essential docker.io 2>/dev/null
+apt-get install -y -qq openssh-server sudo curl wget git vim nano unzip build-essential
 useradd -m -s /bin/bash %s
 echo '%s:%s' | chpasswd
 usermod -aG sudo %s
-usermod -aG docker %s
 echo '%s ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 mkdir -p /run/sshd
-sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
 echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
+echo 'Port %d' >> /etc/ssh/sshd_config
 ssh-keygen -A -q
 exec /usr/sbin/sshd -D
-`, username, username, password, username, username, username)
+`, username, username, password, username, username, sshPort)
 
-	// Pull image (no-op if already present).
+	// Pull image (no-op if already cached).
 	pull, err := m.client.ImagePull(ctx, workspaceImage, dockerclient.ImagePullOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("pull %s: %w", workspaceImage, err)
@@ -70,33 +75,23 @@ exec /usr/sbin/sshd -D
 	io.Copy(io.Discard, pull)
 	pull.Close()
 
-	sshPort, _ := network.ParsePort("22/tcp")
-	anyAddr := netip.MustParseAddr("0.0.0.0")
-
 	resp, err := m.client.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
 		Name: fmt.Sprintf("zkloud-ws-%s-%d", cfg.TeamID, time.Now().UnixNano()),
 		Config: &container.Config{
 			Image: workspaceImage,
-			// Run the setup script as PID 1; sshd takes over at the end.
-			Cmd: []string{"/bin/bash", "-c", setup},
-			ExposedPorts: network.PortSet{
-				sshPort: struct{}{},
-			},
+			Cmd:   []string{"/bin/bash", "-c", setup},
 			Labels: map[string]string{
 				"zkloud.team": cfg.TeamID,
 				"zkloud.type": "workspace",
 			},
 		},
 		HostConfig: &container.HostConfig{
+			// Host networking gives the container full internet access and
+			// lets sshd bind directly to the chosen host port.
+			NetworkMode: "host",
 			Resources: container.Resources{
 				Memory:   cfg.RAMMb * 1024 * 1024,
 				NanoCPUs: int64(cfg.CPUCores * 1e9),
-			},
-			// Random host port for SSH.
-			PortBindings: network.PortMap{
-				sshPort: []network.PortBinding{
-					{HostIP: anyAddr, HostPort: ""},
-				},
 			},
 			// Expose Docker socket so the agent can build/run containers inside.
 			Binds: []string{"/var/run/docker.sock:/var/run/docker.sock"},
@@ -110,24 +105,10 @@ exec /usr/sbin/sshd -D
 		return nil, fmt.Errorf("start workspace: %w", err)
 	}
 
-	// Inspect to discover the dynamically assigned SSH host port.
-	info, err := m.client.ContainerInspect(ctx, resp.ID, dockerclient.ContainerInspectOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("inspect workspace: %w", err)
-	}
+	sshAddr := fmt.Sprintf("localhost:%d", sshPort)
 
-	hostPort := 0
-	if bindings, ok := info.Container.NetworkSettings.Ports[sshPort]; ok && len(bindings) > 0 {
-		fmt.Sscanf(string(bindings[0].HostPort), "%d", &hostPort)
-	}
-	if hostPort == 0 {
-		return nil, fmt.Errorf("could not determine SSH host port")
-	}
-
-	sshAddr := fmt.Sprintf("localhost:%d", hostPort)
-
-	// Wait up to 3 minutes for SSH to come up (apt-get takes ~30-60s).
-	if !waitForPort(sshAddr, 3*time.Minute) {
+	// Wait up to 3 minutes for SSH banner — apt-get takes ~30-60s.
+	if !waitForSSH(sshAddr, 3*time.Minute) {
 		return nil, fmt.Errorf("SSH did not become ready within 3 minutes (container %s)", resp.ID[:12])
 	}
 
@@ -135,7 +116,7 @@ exec /usr/sbin/sshd -D
 		ContainerID: resp.ID[:12],
 		TeamID:      cfg.TeamID,
 		SSHHost:     "localhost",
-		SSHPort:     hostPort,
+		SSHPort:     sshPort,
 		Username:    username,
 		Password:    password,
 		RAMMb:       cfg.RAMMb,
@@ -144,15 +125,31 @@ exec /usr/sbin/sshd -D
 	}, nil
 }
 
-// waitForPort polls addr (host:port) until it accepts a TCP connection or the
-// deadline passes. Returns true if SSH became reachable.
-func waitForPort(addr string, timeout time.Duration) bool {
+// freePort asks the OS for an available TCP port.
+func freePort() (int, error) {
+	l, err := net.Listen("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port, nil
+}
+
+// waitForSSH polls addr until the SSH banner (SSH-2.0-...) is received,
+// meaning sshd is actually ready to accept logins.
+func waitForSSH(addr string, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err == nil {
+			buf := make([]byte, 32)
+			conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			n, _ := conn.Read(buf)
 			conn.Close()
-			return true
+			if n > 0 && strings.HasPrefix(string(buf[:n]), "SSH-") {
+				return true
+			}
 		}
 		time.Sleep(3 * time.Second)
 	}

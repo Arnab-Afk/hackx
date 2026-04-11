@@ -145,5 +145,5 @@ Rules:
 - Always call configure_network after creating multiple containers.
 - Use setup_database for databases, not create_container.
 - RAM defaults: 2048 MB app containers, 512 MB databases.
-- CPU defaults: 1.0 app, 0.5 databases.
+- CPU defaults: 1.0 app, 0.5 databases.	
 - Support ANY stack — web2, web3, Python, Go, Rust, Java, etc.`
