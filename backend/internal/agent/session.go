@@ -39,10 +39,12 @@ const (
 
 // Event is streamed to the frontend over WebSocket.
 type Event struct {
-	Type    string  `json:"type"` // "action" | "message" | "plan" | "done" | "error"
-	Action  *Action `json:"action,omitempty"`
-	Message string  `json:"message,omitempty"`
-	Plan    any     `json:"plan,omitempty"`
+	Type        string  `json:"type"` // "action" | "message" | "plan" | "done" | "error"
+	Action      *Action `json:"action,omitempty"`
+	Message     string  `json:"message,omitempty"`
+	Plan        any     `json:"plan,omitempty"`
+	ContainerID string  `json:"container_id,omitempty"`
+	DeployedURL string  `json:"deployed_url,omitempty"`
 }
 
 // Session manages one agent deployment conversation.
@@ -62,8 +64,10 @@ type Session struct {
 	events          chan Event
 	rpcURL          string // Base Sepolia RPC URL
 	registryAddress string // ProviderRegistry contract address
-	confirmCh       chan struct{} // closed by Confirm() to unblock plan step
-	githubToken     string        // optional — for private repo access
+	confirmCh          chan struct{} // closed by Confirm() to unblock plan step
+	githubToken        string       // optional — for private repo access
+	lastContainerID    string       // ID of last container created (for deploy URL)
+	deployDomain       string       // e.g. "deploy.comput3.xyz"
 }
 
 // anthropic API types (minimal)
@@ -102,7 +106,7 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model, rpcURL, registryAddress, githubToken string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model, rpcURL, registryAddress, githubToken, deployDomain string) *Session {
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
 	}
@@ -120,6 +124,7 @@ func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, 
 		registryAddress: registryAddress,
 		confirmCh:       make(chan struct{}),
 		githubToken:     githubToken,
+		deployDomain:    deployDomain,
 	}
 }
 
@@ -229,7 +234,14 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 	}
 
 	s.State = StateCompleted
-	s.emit(Event{Type: "done", Message: "Deployment complete."})
+	doneEvent := Event{Type: "done", Message: "Deployment complete."}
+	if s.lastContainerID != "" {
+		doneEvent.ContainerID = s.lastContainerID
+		if s.deployDomain != "" {
+			doneEvent.DeployedURL = fmt.Sprintf("https://%s.%s", s.lastContainerID, s.deployDomain)
+		}
+	}
+	s.emit(doneEvent)
 	return nil
 }
 
@@ -314,6 +326,7 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 		info, err := s.mgr.CreateContainer(ctx, opts)
 		if err == nil && info != nil {
 			s.mgr.RegisterDeploy(info.ID, info.Ports)
+			s.lastContainerID = info.ID
 		}
 		return info, err
 

@@ -605,7 +605,7 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL, githubToken
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
 	}
 
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress, githubToken)
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress, githubToken, s.deployDomain)
 
 	// Register so /confirm can reach this session
 	sessionRegistry.register(sessionID, agentSess)

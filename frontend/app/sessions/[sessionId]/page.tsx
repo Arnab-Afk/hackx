@@ -39,7 +39,8 @@ type LiveEvent = {
   message?: string;
   action?: unknown;
   plan?: PlanData;
-  data?: { container_id?: string };
+  container_id?: string;
+  deployed_url?: string;
   error?: string;
 };
 
@@ -208,8 +209,8 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         if (evt.type === "plan") {
           setPlan(evt.plan ?? null);
         } else if (evt.type === "done") {
-          const d = evt.data;
-          if (d?.container_id) setAppURL(`https://${d.container_id}.deploy.comput3.xyz`);
+          if (evt.deployed_url) setAppURL(evt.deployed_url);
+          else if (evt.container_id) setAppURL(`https://${evt.container_id}.deploy.comput3.xyz`);
           setSession((prev) => prev ? { ...prev, state: "completed" } : prev);
           intentionalCloseRef.current = true;
           ws.close();
@@ -562,7 +563,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     {evt.type === "message" && (typeof evt.message === "string" ? evt.message : JSON.stringify(evt.message))}
                     {evt.type === "action" && JSON.stringify(evt.action).slice(0, 120)}
                     {evt.type === "plan" && (evt.plan?.summary ?? JSON.stringify(evt.plan).slice(0, 120))}
-                    {evt.type === "done" && (evt.data?.container_id ? `container: ${evt.data.container_id}` : "done")}
+                    {evt.type === "done" && (evt.deployed_url ?? evt.container_id ?? "done")}
                     {evt.type === "error" && (typeof evt.error === "string" ? evt.error : "error")}
                   </span>
                 </div>
