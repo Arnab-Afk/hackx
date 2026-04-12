@@ -14,17 +14,21 @@ export function getWallet(): string {
 }
 
 export function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // No Authorization header — the nginx proxy blocks it in preflight.
+  // All authenticated calls use ?wallet= query param instead.
+  return {};
 }
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${API}${path}`, {
+  const wallet = getWallet();
+  // Append ?wallet= so the backend can authenticate without an Authorization header
+  const sep = path.includes("?") ? "&" : "?";
+  const url = wallet ? `${API}${path}${sep}wallet=${encodeURIComponent(wallet)}` : `${API}${path}`;
+  return fetch(url, {
     ...init,
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers as Record<string, string>),
-      ...authHeaders(),
     },
   });
 }
