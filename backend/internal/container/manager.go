@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/netip"
 	"path/filepath"
 	"strings"
@@ -120,6 +121,8 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 	exposedPorts := network.PortSet{}
 	portBindings := network.PortMap{}
 	anyAddr := netip.MustParseAddr("0.0.0.0")
+	// hostPortMap tracks container_port → actual host port for the return value
+	hostPortMap := make(map[string]string)
 
 	for _, p := range opts.Ports {
 		port, err := network.ParsePort(p)
@@ -127,7 +130,16 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 			return nil, fmt.Errorf("parse port %s: %w", p, err)
 		}
 		exposedPorts[port] = struct{}{}
-		portBindings[port] = []network.PortBinding{{HostIP: anyAddr, HostPort: ""}}
+
+		// Try to bind to the same port number on the host; fall back to random
+		// if that port is already occupied (e.g. two teams deploy on port 3000).
+		containerPortNum := port.Port()
+		hostPort := containerPortNum
+		if !isPortAvailable(hostPort) {
+			hostPort = "" // let Docker pick a free ephemeral port
+		}
+		portBindings[port] = []network.PortBinding{{HostIP: anyAddr, HostPort: hostPort}}
+		hostPortMap[port.String()] = hostPort
 	}
 
 	containerName := fmt.Sprintf("zkloud-%s-%s", opts.TeamID, opts.Name)
@@ -161,11 +173,50 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 		return nil, fmt.Errorf("start container: %w", err)
 	}
 
+	// Inspect to get the actual host ports Docker assigned (important when we
+	// fell back to an ephemeral port because the desired one was taken).
+	inspect, err := m.client.ContainerInspect(ctx, resp.ID, dockerclient.ContainerInspectOptions{})
+	ports := make(map[string]string)
+	if err == nil {
+		for cPort, bindings := range inspect.Container.HostConfig.PortBindings {
+			for _, b := range bindings {
+				if b.HostPort != "" {
+					ports[cPort.String()] = b.HostPort
+				}
+			}
+		}
+		// If HostConfig bindings are empty (Docker filled them in), read from NetworkSettings
+		if len(ports) == 0 {
+			for cPort, bindings := range inspect.Container.NetworkSettings.Ports {
+				for _, b := range bindings {
+					if b.HostPort != "" {
+						ports[cPort.String()] = b.HostPort
+					}
+				}
+			}
+		}
+	}
+
 	return &ContainerInfo{
 		ID:     resp.ID[:12],
 		Name:   opts.Name,
 		Status: "running",
+		Ports:  ports,
 	}, nil
+}
+
+// isPortAvailable returns true if no process is currently listening on the given
+// TCP port on all interfaces. Used to prefer same-port host bindings.
+func isPortAvailable(port string) bool {
+	if port == "" {
+		return false
+	}
+	ln, err := net.Listen("tcp", ":"+port)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
 }
 
 // InstallPackages runs a package install command inside a running container.
