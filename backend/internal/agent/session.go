@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -144,12 +145,15 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 	}
 
 	for {
+		log.Printf("[session %s] calling proxy (turn %d)...", s.ID, len(messages))
 		resp, err := s.callClaude(ctx, messages)
 		if err != nil {
+			log.Printf("[session %s] proxy error: %v", s.ID, err)
 			s.State = StateFailed
 			s.emit(Event{Type: "error", Message: err.Error()})
 			return err
 		}
+		log.Printf("[session %s] proxy responded: stop_reason=%s blocks=%d", s.ID, resp.StopReason, len(resp.Content))
 
 		// Collect any text blocks to stream to the user
 		var assistantBlocks []contentBlock
@@ -160,8 +164,17 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 			}
 		}
 
-		// If Claude is done (no tool calls), we're finished
-		if resp.StopReason == "end_turn" {
+		// Check whether there are any tool_use blocks — some proxies return
+		// "end_turn" even when tools are being called, so we cannot rely on
+		// StopReason alone.
+		hasToolUse := false
+		for _, block := range resp.Content {
+			if block.Type == "tool_use" {
+				hasToolUse = true
+				break
+			}
+		}
+		if !hasToolUse {
 			break
 		}
 
@@ -172,7 +185,9 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 				continue
 			}
 
+			log.Printf("[session %s] executing tool: %s", s.ID, block.Name)
 			result, toolErr := s.executeTool(ctx, block.Name, block.Input)
+			log.Printf("[session %s] tool %s done (err=%v)", s.ID, block.Name, toolErr)
 
 			action := Action{
 				Index:     len(s.Actions),

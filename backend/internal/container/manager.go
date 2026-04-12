@@ -137,6 +137,9 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 		Image: opts.Image,
 		Config: &container.Config{
 			ExposedPorts: exposedPorts,
+			// Keep container alive so exec commands can run inside it.
+			// The actual application is started later via start_process.
+			Cmd: []string{"sh", "-c", "tail -f /dev/null"},
 			Labels: map[string]string{
 				"zkloud.team": opts.TeamID,
 				"zkloud.name": opts.Name,

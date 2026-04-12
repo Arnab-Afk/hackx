@@ -8,10 +8,9 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/go-git/go-git/v5"
 )
 
 // StackComponent represents a detected technology in the repo.
@@ -86,12 +85,9 @@ func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string, githubToken .
 		cloneURL = injectToken(cloneURL, githubToken[0])
 	}
 
-	_, err = git.PlainCloneContext(ctx, dir, false, &git.CloneOptions{
-		URL:   cloneURL,
-		Depth: 1,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("clone %s: %w", repoURL, err)
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth=1", "--quiet", cloneURL, dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("clone %s: %w\n%s", repoURL, err, string(out))
 	}
 
 	// Collect relevant files
