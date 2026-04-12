@@ -201,7 +201,10 @@ When a user provides a GitHub URL, follow this EXACT sequence:
 5. After confirmation, execute the full deployment:
    a. create_container — use the correct base image for the stack. The response includes a "ports"
       map like {"3000/tcp": "32768"} which tells you the HOST port Docker assigned. Save this.
-   b. clone_repo(container_id, github_url, "/app") — clone the source code
+   b. clone_repo(container_id, github_url, "/app") — clone the source code into /app.
+      If the prompt mentions a subdirectory (e.g. "source code is in the 'frontend' subdirectory"),
+      all subsequent commands (install, build, start) must use "/app/<subdir>" as the work_dir,
+      NOT "/app". Read the subdirectory from the prompt carefully.
    c. run_command(container_id, "<install cmd>", "/app") — install dependencies
       • Node.js: "npm install" or "yarn install"
       • Python: "pip install -r requirements.txt"

@@ -20,6 +20,7 @@ type DeployOption = {
   type: "frontend" | "backend";
   framework: string;
   language: string;
+  sub_dir: string;       // e.g. "frontend" or "" for repo root
   install_cmd: string;
   build_cmd: string;
   start_cmd: string;
@@ -88,7 +89,7 @@ function FrameworkBadge({ opt }: { opt: DeployOption }) {
         </span>
       </div>
       <p style={{ fontSize: 11, fontFamily: "monospace", color: "#4B5563", marginTop: 2 }}>
-        {opt.start_cmd}
+        {opt.sub_dir ? <span style={{ color: "#6B7280" }}>/{opt.sub_dir} · </span> : null}{opt.start_cmd}
       </p>
     </div>
   );
@@ -326,7 +327,13 @@ export default function DeployPage() {
   function handlePickDone() {
     const opt = scan?.options[selectedOption];
     if (opt) {
-      setDeployPrompt(`Deploy the ${opt.framework} ${opt.type} on port ${opt.port}. Run: ${opt.install_cmd}. Start with: ${opt.start_cmd}.`);
+      const subDirClause = opt.sub_dir
+        ? `The source code is in the \`${opt.sub_dir}\` subdirectory — clone the repo then work inside that directory.`
+        : "The source code is at the repo root.";
+      const buildClause = opt.build_cmd ? ` Build with: ${opt.build_cmd}.` : "";
+      setDeployPrompt(
+        `Deploy the ${opt.framework} ${opt.type} on port ${opt.port}. ${subDirClause} Run: ${opt.install_cmd}.${buildClause} Start with: ${opt.start_cmd}.`
+      );
     } else {
       setDeployPrompt(`Deploy the repo at ${repoURL} and start the application.`);
     }
