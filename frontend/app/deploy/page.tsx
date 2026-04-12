@@ -4,9 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
-import { useAccount } from "wagmi";
+import { useAccount, useSignTypedData } from "wagmi";
 import { API, WS_API, apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
+import {
+  buildTransferTypedData,
+  makePaymentHeader,
+  type X402PaymentRequired,
+  type TransferTypedData,
+} from "@/lib/x402";
 
 const ACCENT = "#e2f0d9";
 const ACCENT_FG = "#111111";
@@ -119,6 +125,7 @@ export default function DeployPage() {
   const router = useRouter();
   const { address } = useAccount();
   const { teamId: authTeamId, setTeam } = useAuth();
+  const { signTypedDataAsync } = useSignTypedData();
 
   const [phase, setPhase] = useState<Phase>("repo");
   const [errMsg, setErrMsg] = useState("");
@@ -333,10 +340,42 @@ export default function DeployPage() {
       const body: Record<string, string> = { team_id: teamId, prompt: deployPrompt };
       if (repoURL.trim()) body.repo_url = repoURL.trim();
 
-      const sessRes = await apiFetch(`/sessions`, {
+      // First attempt — may come back as 402 if the backend requires x402 payment.
+      const firstRes = await apiFetch(`/sessions`, {
         method: "POST",
         body: JSON.stringify(body),
       });
+
+      let sessRes = firstRes;
+
+      if (firstRes.status === 402) {
+        // x402 payment required — sign a USDC transferWithAuthorization and retry.
+        const req402: X402PaymentRequired = await firstRes.json();
+        const accepted = req402.accepts?.[0];
+        if (!accepted || !address) {
+          throw new Error("Payment required but no wallet connected or no accepted payment method.");
+        }
+
+        const typedData: TransferTypedData = buildTransferTypedData(accepted, address as `0x${string}`);
+
+        // Ask the user's wallet to sign the EIP-712 transfer authorization.
+        const signature = await signTypedDataAsync({
+          domain: typedData.domain,
+          types: typedData.types,
+          primaryType: typedData.primaryType,
+          message: typedData.message,
+        });
+
+        const paymentHeader = makePaymentHeader(signature, typedData);
+
+        // Retry with the payment header.
+        sessRes = await apiFetch(`/sessions`, {
+          method: "POST",
+          body: JSON.stringify(body),
+          headers: { "X-PAYMENT": paymentHeader },
+        });
+      }
+
       if (!sessRes.ok) throw new Error("Session creation failed: " + await sessRes.text());
       const sess = await sessRes.json();
       setSessionId(sess.id);
