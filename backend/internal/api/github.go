@@ -7,50 +7,33 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
 
-// githubTokenStore holds in-memory GitHub OAuth tokens keyed by state/wallet.
-// For production you'd persist these in the DB, but in-memory is fine for the demo.
-var githubTokenStore = &tokenStore{tokens: map[string]string{}}
+// oauthStateStore holds pending OAuth state→wallet mappings (in-memory is fine — short-lived).
+var oauthStateStore = &stateMap{states: map[string]string{}}
 
-type tokenStore struct {
-	mu     sync.RWMutex
-	tokens map[string]string // wallet_address → github_access_token
-	states map[string]string // oauth_state → wallet_address (pending)
+type stateMap struct {
+	mu     sync.Mutex
+	states map[string]string
 }
 
-func (t *tokenStore) saveState(state, wallet string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.states == nil {
-		t.states = map[string]string{}
-	}
-	t.states[state] = wallet
+func (s *stateMap) save(state, wallet string) {
+	s.mu.Lock()
+	s.states[state] = wallet
+	s.mu.Unlock()
 }
 
-func (t *tokenStore) resolveState(state string) (wallet string, ok bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	wallet, ok = t.states[state]
+func (s *stateMap) resolve(state string) (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	w, ok := s.states[state]
 	if ok {
-		delete(t.states, state)
+		delete(s.states, state)
 	}
-	return
-}
-
-func (t *tokenStore) set(wallet, token string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.tokens[wallet] = token
-}
-
-func (t *tokenStore) get(wallet string) (string, bool) {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	tok, ok := t.tokens[wallet]
-	return tok, ok
+	return w, ok
 }
 
 // GithubRepo is a single entry in the /user/repos response.
@@ -64,9 +47,16 @@ type GithubRepo struct {
 	Language    string    `json:"language"`
 }
 
+// githubToken looks up the stored GitHub token for a wallet from DB, falling back to in-memory.
+func (s *Server) githubToken(wallet string) (string, bool) {
+	tok, err := s.store.GetGitHubToken(context.Background(), strings.ToLower(wallet))
+	if err == nil && tok != "" {
+		return tok, true
+	}
+	return "", false
+}
+
 // GET /auth/github?wallet=0x...
-// Redirects the browser to GitHub OAuth. wallet is stored in the state so we
-// can associate the token with the right user on callback.
 func (s *Server) githubOAuthStart(w http.ResponseWriter, r *http.Request) {
 	if s.githubClientID == "" {
 		http.Error(w, "GitHub OAuth not configured (GITHUB_CLIENT_ID missing)", http.StatusServiceUnavailable)
@@ -78,9 +68,8 @@ func (s *Server) githubOAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use wallet as state (good enough for a hackathon — production should use a CSRF token)
 	state := fmt.Sprintf("%s-%d", wallet, time.Now().UnixNano())
-	githubTokenStore.saveState(state, wallet)
+	oauthStateStore.save(state, wallet)
 
 	redirect := fmt.Sprintf(
 		"https://github.com/login/oauth/authorize?client_id=%s&redirect_uri=%s&scope=repo&state=%s",
@@ -92,8 +81,6 @@ func (s *Server) githubOAuthStart(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /auth/github/callback?code=...&state=...
-// GitHub redirects here after the user approves. Exchanges code for token,
-// stores it, then redirects back with the token for the frontend to use.
 func (s *Server) githubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -103,38 +90,35 @@ func (s *Server) githubOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wallet, ok := githubTokenStore.resolveState(state)
+	wallet, ok := oauthStateStore.resolve(state)
 	if !ok {
 		http.Error(w, "invalid or expired state", http.StatusBadRequest)
 		return
 	}
 
-	// Exchange code for token
 	token, err := exchangeGitHubCode(r.Context(), s.githubClientID, s.githubClientSecret, code, s.githubCallbackURL)
 	if err != nil {
 		http.Error(w, "token exchange failed: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 
-	githubTokenStore.set(wallet, token)
+	// Persist to DB
+	_ = s.store.SaveGitHubToken(r.Context(), strings.ToLower(wallet), token)
 
-	// Redirect back to frontend deploy page with success flag.
-	// Frontend reads ?github=connected to mark OAuth as done.
 	frontendURL := s.githubFrontendURL + "?github=connected&wallet=" + url.QueryEscape(wallet)
 	http.Redirect(w, r, frontendURL, http.StatusFound)
 }
 
 // GET /auth/github/repos?wallet=0x...
-// Returns the list of repos accessible with the stored token.
 func (s *Server) githubListRepos(w http.ResponseWriter, r *http.Request) {
 	wallet := r.URL.Query().Get("wallet")
 	if wallet == "" {
 		http.Error(w, "wallet required", http.StatusBadRequest)
 		return
 	}
-	token, ok := githubTokenStore.get(wallet)
+	token, ok := s.githubToken(wallet)
 	if !ok {
-		http.Error(w, "github not connected for this wallet — call GET /auth/github?wallet=...", http.StatusUnauthorized)
+		http.Error(w, "github not connected — call GET /auth/github?wallet=...", http.StatusUnauthorized)
 		return
 	}
 
@@ -146,7 +130,6 @@ func (s *Server) githubListRepos(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, repos)
 }
 
-// exchangeGitHubCode trades an OAuth code for an access token.
 func exchangeGitHubCode(ctx context.Context, clientID, clientSecret, code, redirectURI string) (string, error) {
 	resp, err := http.PostForm("https://github.com/login/oauth/access_token", url.Values{
 		"client_id":     {clientID},
@@ -160,7 +143,6 @@ func exchangeGitHubCode(ctx context.Context, clientID, clientSecret, code, redir
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	// GitHub returns application/x-www-form-urlencoded
 	vals, err := url.ParseQuery(string(body))
 	if err != nil {
 		return "", fmt.Errorf("parse response: %w", err)
@@ -175,7 +157,6 @@ func exchangeGitHubCode(ctx context.Context, clientID, clientSecret, code, redir
 	return token, nil
 }
 
-// fetchGitHubRepos calls GET /user/repos with the given token.
 func fetchGitHubRepos(ctx context.Context, token string) ([]GithubRepo, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet,
 		"https://api.github.com/user/repos?per_page=100&sort=updated", nil)
@@ -194,3 +175,5 @@ func fetchGitHubRepos(ctx context.Context, token string) ([]GithubRepo, error) {
 	}
 	return repos, nil
 }
+
+

@@ -51,6 +51,7 @@ func main() {
 		cfg.BaseSepolia_RPC_URL, cfg.ProviderRegistryAddress,
 		cfg.EASSchemaUID, cfg.AgentWalletPrivateKey,
 		cfg.GitHubClientID, cfg.GitHubClientSecret, cfg.GitHubCallbackURL, cfg.GitHubFrontendURL,
+		cfg.JWTSecret, cfg.VaultMasterSecret,
 	)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

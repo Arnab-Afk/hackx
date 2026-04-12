@@ -1,32 +1,38 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
-import { MOCK_ACTION_LOG, MOCK_SESSIONS } from "@/lib/mockData";
+import { apiFetch } from "@/lib/api";
 
 const ACCENT = "#7c45ff";
 
 type AttestationRow = {
-  uid: string;
-  session: string;
-  container: string;
-  timestamp: string;
-  txHash: string;
+  session_id: string;
+  attestation_uid: string;
+  tx_hash: string;
+  merkle_root?: string;
+  schema_uid?: string;
+  eas_scan_url?: string;
+  created_at?: string;
 };
 
-function buildRows(): AttestationRow[] {
-  return MOCK_SESSIONS.flatMap((s) =>
-    MOCK_ACTION_LOG.actions.slice(0, 2).map((a, i) => ({
-      uid: "0x" + a.hash.slice(0, 40),
-      session: s.id.slice(0, 10) + "…",
-      container: a.tool === "create_container" ? "container-" + i : "session-root",
-      timestamp: s.updated_at || s.created_at,
-      txHash: "0x" + a.hash.slice(0, 16) + "…",
-    }))
-  );
-}
-
 export default function AttestationsPage() {
-  const rows = buildRows();
+  const [rows, setRows] = useState<AttestationRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [schemaUID, setSchemaUID] = useState("—");
+
+  useEffect(() => {
+    const teamId = localStorage.getItem("zkloud_team_id");
+    if (!teamId) { setLoading(false); return; }
+    apiFetch(`/teams/${teamId}/attestations`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: AttestationRow[]) => {
+        setRows(Array.isArray(data) ? data : []);
+        if (data?.[0]?.schema_uid) setSchemaUID(data[0].schema_uid.slice(0, 10) + "…");
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
@@ -52,12 +58,11 @@ export default function AttestationsPage() {
             </div>
           </header>
 
-          {/* Stats row */}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
             {[
-              { label: "Total Attestations", value: String(rows.length) },
-              { label: "Unique Sessions", value: String(MOCK_SESSIONS.length) },
-              { label: "Schema UID", value: "0x1234…abcd" },
+              { label: "Total Attestations", value: loading ? "…" : String(rows.length) },
+              { label: "Unique Sessions", value: loading ? "…" : String(new Set(rows.map((r) => r.session_id)).size) },
+              { label: "Schema UID", value: schemaUID },
             ].map((c) => (
               <div key={c.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
                 <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{c.label}</p>
@@ -66,53 +71,77 @@ export default function AttestationsPage() {
             ))}
           </div>
 
-          {/* Attestation table */}
           <div className="rounded-xl overflow-hidden" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
             <div
               className="grid gap-4 px-5 py-3 text-xs font-semibold uppercase tracking-wider"
-              style={{ gridTemplateColumns: "1fr 100px 100px 140px 1fr", color: "#4B5563", borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}
+              style={{ gridTemplateColumns: "1fr 120px 120px 1fr", color: "#4B5563", borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}
             >
               <span>Attestation UID</span>
               <span>Session</span>
-              <span>Container</span>
-              <span>Timestamp</span>
+              <span>Merkle Root</span>
               <span>Explorer</span>
             </div>
+
+            {loading && (
+              <div className="flex items-center justify-center py-12">
+                <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/>
+                </svg>
+              </div>
+            )}
+
+            {!loading && rows.length === 0 && (
+              <p className="px-5 py-10 text-sm text-center" style={{ color: "#4B5563" }}>
+                No attestations yet. Complete an agent session to generate one.
+              </p>
+            )}
+
             {rows.map((row, i) => (
               <div
                 key={i}
                 className="grid gap-4 px-5 py-3.5 items-center transition-colors"
-                style={{ gridTemplateColumns: "1fr 100px 100px 140px 1fr", borderBottom: "1px solid rgba(44,44,46,0.6)" }}
+                style={{ gridTemplateColumns: "1fr 120px 120px 1fr", borderBottom: "1px solid rgba(44,44,46,0.6)" }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}
                 onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono" style={{ color: ACCENT }}>{row.uid}</span>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(row.uid)}
-                    className="text-[10px] px-1.5 py-0.5 rounded"
-                    style={{ color: "#6B7280", background: "#2A2A2D" }}
-                  >
-                    copy
-                  </button>
+                  <span className="text-xs font-mono" style={{ color: ACCENT }}>
+                    {row.attestation_uid ? row.attestation_uid.slice(0, 20) + "…" : "pending…"}
+                  </span>
+                  {row.attestation_uid && (
+                    <button
+                      onClick={() => navigator.clipboard.writeText(row.attestation_uid)}
+                      className="text-[10px] px-1.5 py-0.5 rounded"
+                      style={{ color: "#6B7280", background: "#2A2A2D" }}
+                    >
+                      copy
+                    </button>
+                  )}
                 </div>
-                <span className="text-xs font-mono" style={{ color: "#9CA3AF" }}>{row.session}</span>
-                <span className="text-xs font-mono" style={{ color: "#9CA3AF" }}>{row.container}</span>
-                <span className="text-xs font-mono" style={{ color: "#4B5563" }}>{row.timestamp}</span>
-                <a
-                  href={`https://sepolia.basescan.org/tx/${row.txHash}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-mono hover:underline flex items-center gap-1"
-                  style={{ color: ACCENT }}
-                >
-                  {row.txHash}
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-                    <polyline points="15 3 21 3 21 9"/>
-                    <line x1="10" y1="14" x2="21" y2="3"/>
-                  </svg>
-                </a>
+                <span className="text-xs font-mono" style={{ color: "#9CA3AF" }}>
+                  {row.session_id?.slice(0, 10)}…
+                </span>
+                <span className="text-xs font-mono truncate" style={{ color: "#4B5563" }}>
+                  {row.merkle_root ? row.merkle_root.slice(0, 12) + "…" : "—"}
+                </span>
+                {row.eas_scan_url ? (
+                  <a
+                    href={row.eas_scan_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-mono hover:underline flex items-center gap-1"
+                    style={{ color: ACCENT }}
+                  >
+                    EAS Scan
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                      <polyline points="15 3 21 3 21 9"/>
+                      <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                  </a>
+                ) : (
+                  <span className="text-xs font-mono" style={{ color: "#4B5563" }}>—</span>
+                )}
               </div>
             ))}
           </div>
@@ -121,3 +150,4 @@ export default function AttestationsPage() {
     </div>
   );
 }
+

@@ -27,6 +27,9 @@ type Config struct {
 	// Vault — used to derive per-user LUKS keys
 	// Each user key = keccak256(VaultMasterSecret + attestation_uid)
 	VaultMasterSecret string
+
+	// JWTSecret is used to sign wallet auth tokens. Defaults to VaultMasterSecret.
+	JWTSecret string
 }
 
 func Load() *Config {
@@ -43,6 +46,7 @@ func Load() *Config {
 		EASSchemaUID:            getEnv("EAS_SCHEMA_UID", "0x001219cb6b1ad28ce53a643f532872015acab85429133286b9e2c96e910945f0"),
 		AgentWalletPrivateKey:   getEnv("AGENT_WALLET_PRIVATE_KEY", ""),
 		VaultMasterSecret:       getEnv("VAULT_MASTER_SECRET", ""),
+		JWTSecret:               getEnv("JWT_SECRET", getEnv("VAULT_MASTER_SECRET", "comput3-dev-secret")),
 
 		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),

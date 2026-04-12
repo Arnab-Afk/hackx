@@ -15,6 +15,7 @@ import (
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/Arnab-Afk/hackx/backend/internal/chain"
+	"github.com/Arnab-Afk/hackx/backend/internal/store"
 )
 
 // x402PaymentRequired is the body returned when payment is missing.
@@ -66,7 +67,8 @@ var usedNonces sync.Map // key: nonce hex string → expiry time.Time
 //   - requiredUsdc:   minimum payment in USDC micro-units (e.g. 10000 = 0.01 USDC)
 //   - rpcURL:         Base Sepolia RPC endpoint
 //   - agentPrivKey:   private key of the agent wallet (pays gas for transferWithAuthorization)
-func x402Middleware(providerWallet string, requiredUsdc *big.Int, rpcURL, agentPrivKey string) func(http.Handler) http.Handler {
+//   - storeRef:       optional store for persisting payment records (may be nil)
+func x402Middleware(providerWallet string, requiredUsdc *big.Int, rpcURL, agentPrivKey string, storeRef *store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			paymentHeader := r.Header.Get("X-PAYMENT")
@@ -167,6 +169,16 @@ func x402Middleware(providerWallet string, requiredUsdc *big.Int, rpcURL, agentP
 						log.Printf("[x402] USDC transfer submission failed: %v", err)
 					} else {
 						log.Printf("[x402] USDC transfer submitted: tx=%s from=%s value=%s", txHash, ta.From.Hex(), value.String())
+						// Persist the payment record
+						if storeRef != nil {
+							_ = storeRef.SavePayment(context.Background(), &store.Payment{
+								Wallet:     strings.ToLower(ta.From.Hex()),
+								AmountUSDC: value.String(),
+								TxHash:     txHash,
+								Nonce:      auth.Payload.Nonce,
+								Status:     "confirmed",
+							})
+						}
 					}
 				}()
 			}

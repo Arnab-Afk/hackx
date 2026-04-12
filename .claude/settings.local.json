@@ -4,7 +4,9 @@
       "Bash(go get:*)",
       "Bash(go build:*)",
       "Bash(docker --version)",
-      "Bash(go version:*)"
+      "Bash(go version:*)",
+      "Bash(curl -s https://backendapi.comput3.xyz/health)",
+      "Bash(curl:*)"
     ]
   }
 }

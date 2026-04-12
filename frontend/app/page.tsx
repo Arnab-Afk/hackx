@@ -5,8 +5,8 @@ import Link from "next/link";
 import { WalletButton } from "@/components/WalletButton";
 import { useAccount, useBalance } from "wagmi";
 import { baseSepolia } from "viem/chains";
-import { MOCK_CONTAINERS, MOCK_SESSIONS } from "@/lib/mockData";
 import { Sidebar } from "@/components/Sidebar";
+import { apiFetch } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -31,8 +31,8 @@ export default function Home() {
   const { address, isConnected } = useAccount();
   const { data: balance } = useBalance({ address, chainId: baseSepolia.id });
 
-  const [containers, setContainers] = useState<Container[]>(MOCK_CONTAINERS);
-  const [sessions, setSessions] = useState<SessionSummary[]>(MOCK_SESSIONS);
+  const [containers, setContainers] = useState<Container[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
   const [activeTab, setActiveTab] = useState<"containers" | "sessions" | "audit">("containers");
 
@@ -41,25 +41,16 @@ export default function Home() {
     if (!teamId) return;
 
     setLoadingContainers(true);
-    fetch(`${API}/teams/${teamId}/containers`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((c) => { if (Array.isArray(c) && c.length > 0) setContainers(c); })
+    apiFetch(`/teams/${teamId}/containers`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((c) => { if (Array.isArray(c)) setContainers(c); })
       .catch(() => {})
       .finally(() => setLoadingContainers(false));
 
-    const sessionIds: string[] = JSON.parse(localStorage.getItem("comput3_sessions") ?? "[]");
-    const recent = sessionIds.slice(0, 10);
-    if (recent.length === 0) return;
-    Promise.all(
-      recent.map((id) =>
-        fetch(`${API}/sessions/${id}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .catch(() => null)
-      )
-    ).then((results) => {
-      const real = results.filter(Boolean) as SessionSummary[];
-      if (real.length > 0) setSessions(real);
-    });
+    apiFetch(`/teams/${teamId}/sessions`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((s) => { if (Array.isArray(s)) setSessions(s); })
+      .catch(() => {});
   }, []);
 
   const running = containers.filter((c) => c.status === "running").length;

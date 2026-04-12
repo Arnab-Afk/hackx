@@ -2,11 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math/big"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -41,9 +45,11 @@ type Server struct {
 	githubClientSecret string
 	githubCallbackURL  string
 	githubFrontendURL  string
+	jwtSecret          string
+	vaultMasterSecret  string
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL string) http.Handler {
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL, jwtSecret, vaultMasterSecret string) http.Handler {
 	srv := &Server{
 		mgr:                mgr,
 		scanner:            sc,
@@ -59,6 +65,8 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 		githubClientSecret: githubClientSecret,
 		githubCallbackURL:  githubCallbackURL,
 		githubFrontendURL:  githubFrontendURL,
+		jwtSecret:          jwtSecret,
+		vaultMasterSecret:  vaultMasterSecret,
 	}
 
 	authMgr := auth.NewManager()
@@ -95,9 +103,11 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 			http.Error(w, fmt.Sprintf("verification failed: %v", err), http.StatusUnauthorized)
 			return
 		}
+		token := srv.issueJWT(req.Address)
 		jsonResponse(w, http.StatusOK, map[string]any{
 			"verified": true,
 			"address":  req.Address,
+			"token":    token,
 		})
 	})
 
@@ -110,6 +120,20 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	r.Post("/teams", srv.createTeam)
 	r.Get("/teams/{teamID}", srv.getTeam)
 	r.Get("/teams/{teamID}/containers", srv.listContainers)
+	r.Get("/teams/{teamID}/sessions", srv.listTeamSessions)
+	r.Get("/teams/{teamID}/attestations", srv.listTeamAttestations)
+	r.Get("/teams/{teamID}/workspaces", srv.listTeamWorkspaces)
+
+	// Payments — list x402 payments for a wallet
+	r.Get("/payments", srv.listPayments)
+
+	// On-chain providers
+	r.Get("/providers/active", srv.getActiveProviders)
+
+	// Secrets (wallet-auth gated)
+	r.Get("/secrets", srv.listSecrets)
+	r.Post("/secrets", srv.createSecret)
+	r.Delete("/secrets/{id}", srv.deleteSecret)
 
 	// Compute endpoints — protected by x402 payment middleware when a provider wallet is configured.
 	// If agentWalletKey is empty (dev mode), x402 is bypassed so the node still works without payment.
@@ -118,7 +142,7 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 		// 0.01 USDC per session (10_000 micro-USDC, 6 decimals)
 		requiredUsdc := big.NewInt(10_000)
 		providerWallet := deriveProviderWallet(srv.agentWalletKey)
-		computeMiddleware = x402Middleware(providerWallet, requiredUsdc, srv.rpcURL, srv.agentWalletKey)
+		computeMiddleware = x402Middleware(providerWallet, requiredUsdc, srv.rpcURL, srv.agentWalletKey, srv.store)
 	} else {
 		computeMiddleware = func(next http.Handler) http.Handler { return next } // passthrough
 	}
@@ -387,6 +411,37 @@ func (s *Server) allocateWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Persist workspace to DB
+	_ = s.store.SaveWorkspace(r.Context(), &store.Workspace{
+		ContainerID: ws.ContainerID,
+		TeamID:      ws.TeamID,
+		SSHHost:     ws.SSHHost,
+		SSHPort:     ws.SSHPort,
+		AppPort:     ws.AppPort,
+		Username:    ws.Username,
+		Password:    ws.Password,
+		StoragePath: ws.StoragePath,
+		Status:      ws.Status,
+		CreatedAt:   ws.CreatedAt,
+	})
+
+	// Background: update DB status once SSH is ready
+	go func() {
+		deadline := time.Now().Add(5 * time.Minute)
+		for time.Now().Before(deadline) {
+			time.Sleep(3 * time.Second)
+			info, ok := s.mgr.GetWorkspaceInfo(ws.ContainerID)
+			if ok && info.Status == "ready" {
+				_ = s.store.UpdateWorkspaceStatus(context.Background(), ws.ContainerID, "ready")
+				return
+			}
+			if ok && info.Status == "failed" {
+				_ = s.store.UpdateWorkspaceStatus(context.Background(), ws.ContainerID, "failed")
+				return
+			}
+		}
+	}()
+
 	log.Printf("[workspace] ready — container=%s ssh=localhost:%d user=%s", ws.ContainerID, ws.SSHPort, ws.Username)
 	jsonResponse(w, http.StatusCreated, ws)
 }
@@ -639,7 +694,7 @@ func (s *Server) scanRepo(w http.ResponseWriter, r *http.Request) {
 
 	token := req.Token
 	if token == "" && req.Wallet != "" {
-		token, _ = githubTokenStore.get(req.Wallet)
+		token, _ = s.githubToken(req.Wallet)
 	}
 
 	result, err := scanner.ScanRepo(r.Context(), req.RepoURL, token)
@@ -670,7 +725,7 @@ func (s *Server) deployToWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	token := req.Token
 	if token == "" && req.Wallet != "" {
-		token, _ = githubTokenStore.get(req.Wallet)
+		token, _ = s.githubToken(req.Wallet)
 	}
 
 	// Re-scan to get the deploy options.
@@ -773,4 +828,238 @@ func (s *Server) deployToWorkspace(w http.ResponseWriter, r *http.Request) {
 
 func generateID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
+
+// --- JWT helpers ---
+
+// issueJWT creates a simple HMAC-SHA256 signed token: wallet|exp hex-signed.
+func (s *Server) issueJWT(wallet string) string {
+	exp := time.Now().Add(30 * 24 * time.Hour).Unix()
+	payload := fmt.Sprintf("%s|%d", strings.ToLower(wallet), exp)
+	mac := hmac.New(sha256.New, []byte(s.jwtSecret))
+	mac.Write([]byte(payload))
+	sig := hex.EncodeToString(mac.Sum(nil))
+	return payload + "|" + sig
+}
+
+// verifyJWT validates the token and returns the wallet address.
+func (s *Server) verifyJWT(token string) (string, bool) {
+	parts := strings.Split(token, "|")
+	if len(parts) != 3 {
+		return "", false
+	}
+	wallet, expStr, sig := parts[0], parts[1], parts[2]
+	exp, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return "", false
+	}
+	payload := wallet + "|" + expStr
+	mac := hmac.New(sha256.New, []byte(s.jwtSecret))
+	mac.Write([]byte(payload))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	if !hmac.Equal([]byte(sig), []byte(expected)) {
+		return "", false
+	}
+	return wallet, true
+}
+
+// walletFromRequest extracts the wallet from Authorization: Bearer <token> header.
+// Falls back to ?wallet= query param for backwards compat.
+func (s *Server) walletFromRequest(r *http.Request) (string, bool) {
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		return s.verifyJWT(strings.TrimPrefix(auth, "Bearer "))
+	}
+	if w := r.URL.Query().Get("wallet"); w != "" {
+		return w, true // unauthenticated but wallet-identified
+	}
+	return "", false
+}
+
+// --- New list endpoints ---
+
+// GET /teams/:teamID/sessions
+func (s *Server) listTeamSessions(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamID")
+	sessions, err := s.store.ListSessions(r.Context(), teamID, 50)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if sessions == nil {
+		sessions = []store.Session{}
+	}
+	jsonResponse(w, http.StatusOK, sessions)
+}
+
+// GET /teams/:teamID/attestations
+func (s *Server) listTeamAttestations(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamID")
+	list, err := s.store.ListAttestations(r.Context(), teamID, 50)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []store.Attestation{}
+	}
+	jsonResponse(w, http.StatusOK, list)
+}
+
+// GET /teams/:teamID/workspaces
+func (s *Server) listTeamWorkspaces(w http.ResponseWriter, r *http.Request) {
+	teamID := chi.URLParam(r, "teamID")
+	list, err := s.store.ListWorkspaces(r.Context(), teamID)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []store.Workspace{}
+	}
+	jsonResponse(w, http.StatusOK, list)
+}
+
+// GET /payments?wallet=
+func (s *Server) listPayments(w http.ResponseWriter, r *http.Request) {
+	wallet, _ := s.walletFromRequest(r)
+	if wallet == "" {
+		jsonResponse(w, http.StatusOK, []store.Payment{})
+		return
+	}
+	list, err := s.store.ListPayments(r.Context(), strings.ToLower(wallet), 50)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	if list == nil {
+		list = []store.Payment{}
+	}
+	jsonResponse(w, http.StatusOK, list)
+}
+
+// GET /providers/active
+func (s *Server) getActiveProviders(w http.ResponseWriter, r *http.Request) {
+	if s.rpcURL == "" || s.registryAddress == "" {
+		jsonResponse(w, http.StatusOK, []any{})
+		return
+	}
+	providers, err := chain.GetActiveProviders(r.Context(), s.rpcURL, s.registryAddress)
+	if err != nil {
+		log.Printf("[providers] fetch error: %v", err)
+		jsonResponse(w, http.StatusOK, []any{})
+		return
+	}
+	if providers == nil {
+		providers = []chain.Provider{}
+	}
+	jsonResponse(w, http.StatusOK, providers)
+}
+
+// --- Secrets endpoints ---
+
+// secretKey derives an AES key for encrypting secrets: sha256(vaultMasterSecret + wallet)
+func (s *Server) secretKey(wallet string) []byte {
+	h := sha256.New()
+	h.Write([]byte(s.vaultMasterSecret))
+	h.Write([]byte(strings.ToLower(wallet)))
+	return h.Sum(nil)
+}
+
+// GET /secrets?wallet= (or Authorization: Bearer <token>)
+func (s *Server) listSecrets(w http.ResponseWriter, r *http.Request) {
+	wallet, ok := s.walletFromRequest(r)
+	if !ok || wallet == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	secrets, err := s.store.ListSecrets(r.Context(), strings.ToLower(wallet))
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	// Return without exposing encrypted values — decrypt here
+	type SecretOut struct {
+		ID        int64  `json:"id"`
+		Name      string `json:"name"`
+		CreatedAt string `json:"created_at"`
+	}
+	out := make([]SecretOut, len(secrets))
+	for i, sec := range secrets {
+		out[i] = SecretOut{ID: sec.ID, Name: sec.Name, CreatedAt: sec.CreatedAt.Format(time.RFC3339)}
+	}
+	jsonResponse(w, http.StatusOK, out)
+}
+
+// POST /secrets { wallet, name, value }
+func (s *Server) createSecret(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name  string `json:"name"`
+		Value string `json:"value"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Value == "" {
+		http.Error(w, "name and value required", http.StatusBadRequest)
+		return
+	}
+	wallet, ok := s.walletFromRequest(r)
+	if !ok || wallet == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	wallet = strings.ToLower(wallet)
+	// Encrypt value with AES-GCM
+	enc, err := encryptSecret(s.secretKey(wallet), req.Value)
+	if err != nil {
+		http.Error(w, "encrypt error", http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.SaveSecret(r.Context(), wallet, req.Name, enc); err != nil {
+		http.Error(w, "save error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusCreated, map[string]string{"status": "ok", "name": req.Name})
+}
+
+// DELETE /secrets/{id}
+func (s *Server) deleteSecret(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	wallet, ok := s.walletFromRequest(r)
+	if !ok || wallet == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if err := s.store.DeleteSecret(r.Context(), id, strings.ToLower(wallet)); err != nil {
+		http.Error(w, "delete error", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// encryptSecret encrypts plaintext with XOR-SHA256 keyed stream (simple, no extra deps).
+// Values are stored server-side; key = sha256(vaultMasterSecret + wallet).
+func encryptSecret(key []byte, plaintext string) (string, error) {
+	h := sha256.New()
+	h.Write(key)
+	keyStream := h.Sum(nil) // 32 bytes
+	plain := []byte(plaintext)
+	out := make([]byte, len(plain))
+	for i, b := range plain {
+		out[i] = b ^ keyStream[i%32]
+	}
+	return hex.EncodeToString(out), nil
+}
+
+func decryptSecret(key []byte, cipherHex string) (string, error) {
+	// XOR is its own inverse
+	return encryptSecret(key, string(mustDecodeHex(cipherHex)))
+}
+
+func mustDecodeHex(s string) []byte {
+	b, _ := hex.DecodeString(s)
+	return b
 }

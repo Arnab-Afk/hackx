@@ -57,6 +57,66 @@ func init() {
 	}
 }
 
+// GetActiveProviders returns all active providers from the registry.
+func GetActiveProviders(ctx context.Context, rpcURL, registryAddress string) ([]Provider, error) {
+	client := newRPCClient(rpcURL)
+	selector := crypto.Keccak256([]byte("getActiveProviders()"))[:4]
+	calldata := "0x" + hex.EncodeToString(selector)
+	result, err := client.call(ctx, "eth_call", map[string]string{
+		"to":   registryAddress,
+		"data": calldata,
+	}, "latest")
+	if err != nil {
+		return nil, fmt.Errorf("eth_call getActiveProviders: %w", err)
+	}
+	var hexStr string
+	if err := json.Unmarshal(result, &hexStr); err != nil {
+		return nil, fmt.Errorf("decode eth_call result: %w", err)
+	}
+	hexStr = strings.TrimPrefix(hexStr, "0x")
+	rawBytes, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return nil, fmt.Errorf("decode hex: %w", err)
+	}
+	out, err := providerABI.Methods["getActiveProviders"].Outputs.Unpack(rawBytes)
+	if err != nil {
+		return nil, fmt.Errorf("abi unpack providers: %w", err)
+	}
+	if len(out) == 0 {
+		return []Provider{}, nil
+	}
+	raw, err := json.Marshal(out[0])
+	if err != nil {
+		return nil, err
+	}
+	type onChainProvider struct {
+		Wallet        gethcommon.Address `json:"wallet"`
+		Endpoint      string             `json:"endpoint"`
+		PricePerHour  *big.Int           `json:"pricePerHour"`
+		StakedAmount  *big.Int           `json:"stakedAmount"`
+		SlashCount    *big.Int           `json:"slashCount"`
+		JobsCompleted *big.Int           `json:"jobsCompleted"`
+		Active        bool               `json:"active"`
+	}
+	var providers []onChainProvider
+	if err := json.Unmarshal(raw, &providers); err != nil {
+		return nil, fmt.Errorf("unmarshal providers: %w", err)
+	}
+	result2 := make([]Provider, len(providers))
+	for i, p := range providers {
+		result2[i] = Provider{
+			Wallet:        p.Wallet,
+			Endpoint:      p.Endpoint,
+			PricePerHour:  p.PricePerHour,
+			StakedAmount:  p.StakedAmount,
+			SlashCount:    p.SlashCount,
+			JobsCompleted: p.JobsCompleted,
+			Active:        p.Active,
+		}
+	}
+	return result2, nil
+}
+
 // SelectProvider queries the ProviderRegistry contract on-chain, filters active
 // providers with enough stake, and returns the cheapest one (tiebreak: most jobs).
 func SelectProvider(ctx context.Context, rpcURL, registryAddress string) (*Provider, error) {
