@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { useAccount } from "wagmi";
-import { API, apiFetch } from "@/lib/api";
+import { API, WS_API, apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 const ACCENT = "#e2f0d9";
 const ACCENT_FG = "#111111";
@@ -31,28 +32,29 @@ type RepoScan = {
   env_vars: string[];
 };
 
-type Workspace = {
-  container_id: string;
-  ssh_port: number;
-  app_port: number;
-  username: string;
-  password: string;
-  storage_path: string;
-  status: string;
+type PlanContainer = {
+  name: string;
+  image: string;
+  ram_mb: number;
+  cpu_cores: number;
+  ports: string[];
 };
 
-type DeployResult = {
-  container_id: string;
-  framework: string;
-  type: string;
-  port: number;
-  app_url: string;
+type PlanData = {
+  summary: string;
+  estimated_cost_per_hour?: number;
+  has_smart_contracts?: boolean;
+  containers?: PlanContainer[];
+};
+
+type LiveEvent = {
+  type: "plan" | "message" | "action" | "done" | "error";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any;
+  ts: number;
 };
 
 // ── helpers ───────────────────────────────────────────────────────────────────
-
-const RAM_MB: Record<string, number> = { "1 GB": 1024, "2 GB": 2048, "4 GB": 4096, "8 GB": 8192 };
-const CPU_CORES: Record<string, number> = { "1 core": 1, "2 cores": 2, "4 cores": 4 };
 
 const FRAMEWORK_ICONS: Record<string, string> = {
   nextjs: "▲", react: "⚛", vue: "🟩", sveltekit: "🔥", nuxt: "💚",
@@ -104,11 +106,16 @@ type GithubRepo = {
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
-type Phase = "repo" | "repos" | "scanning" | "pick" | "vm" | "deploying" | "done" | "error";
+type Phase =
+  | "repo" | "repos" | "scanning" | "pick"
+  | "prompt" | "creating"
+  | "streaming" | "awaiting_confirm" | "building"
+  | "done" | "error";
 
 export default function DeployPage() {
   const router = useRouter();
   const { address } = useAccount();
+  const { teamId: authTeamId, setTeam } = useAuth();
 
   const [phase, setPhase] = useState<Phase>("repo");
   const [errMsg, setErrMsg] = useState("");
@@ -126,16 +133,18 @@ export default function DeployPage() {
   // Stage 2 — scan
   const [scan, setScan] = useState<RepoScan | null>(null);
   const [selectedOption, setSelectedOption] = useState<number>(0);
-  const [envVars, setEnvVars] = useState<Record<string, string>>({});
 
-  // Stage 3 — VM
-  const [ram, setRam] = useState("2 GB");
-  const [cpu, setCpu] = useState("2 cores");
+  // Stage 3 — prompt
+  const [deployPrompt, setDeployPrompt] = useState("");
+
+  // Stage 4 — session & streaming
   const [sessionId, setSessionId] = useState("");
-
-  // Stage 4 — result
-  const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [deployResult, setDeployResult] = useState<DeployResult | null>(null);
+  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
+  const [plan, setPlan] = useState<PlanData | null>(null);
+  const [appURL, setAppURL] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const eventsEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -166,6 +175,71 @@ export default function DeployPage() {
     }
   }
 
+  // Auto-scroll live events
+  useEffect(() => {
+    eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [liveEvents]);
+
+  // Cleanup WS on unmount
+  useEffect(() => { return () => { wsRef.current?.close(); }; }, []);
+
+  // ── helpers ─────────────────────────────────────────────────────────────────
+
+  async function ensureTeam(): Promise<string | null> {
+    if (authTeamId) return authTeamId;
+    const stored = localStorage.getItem("zkloud_team_id");
+    if (stored) return stored;
+    const name = "team-" + Math.random().toString(36).slice(2, 9);
+    const res = await apiFetch(`/teams`, {
+      method: "POST",
+      body: JSON.stringify({ name, public_key: "" }),
+    });
+    if (!res.ok) return null;
+    const t = await res.json();
+    localStorage.setItem("zkloud_team_id", t.id);
+    localStorage.setItem("zkloud_team_name", t.name);
+    setTeam(t.id, t.name);
+    return t.id;
+  }
+
+  function connectStream(sid: string) {
+    const ws = new WebSocket(`${WS_API}/sessions/${sid}/stream`);
+    wsRef.current = ws;
+
+    ws.onmessage = (e) => {
+      try {
+        const evt = JSON.parse(e.data) as { type: string; data?: unknown };
+        const le: LiveEvent = { type: evt.type as LiveEvent["type"], data: evt.data, ts: Date.now() };
+        setLiveEvents((prev) => [...prev, le]);
+
+        if (evt.type === "plan") {
+          setPlan(evt.data as PlanData);
+          setPhase("awaiting_confirm");
+        } else if (evt.type === "done") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const d = evt.data as any;
+          if (d?.container_id) setAppURL(`https://${d.container_id}.deploy.comput3.xyz`);
+          else if (d?.app_url) setAppURL(d.app_url);
+          setPhase("done");
+          ws.close();
+        } else if (evt.type === "error") {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          setErrMsg((evt.data as any)?.message ?? String(evt.data) ?? "Deployment failed");
+          setPhase("error");
+          ws.close();
+        }
+      } catch { /* non-JSON frame */ }
+    };
+
+    ws.onerror = () => { setErrMsg("WebSocket connection lost"); setPhase("error"); };
+    ws.onclose = (e) => {
+      if (e.code !== 1000 && !["done","error"].includes(phase)) {
+        setErrMsg("Connection closed unexpectedly (code " + e.code + ")");
+        setPhase("error");
+      }
+    };
+  }
+
   // ── handlers ────────────────────────────────────────────────────────────────
 
   async function handleScan() {
@@ -174,71 +248,72 @@ export default function DeployPage() {
   }
 
   async function handleDeploy() {
-    if (!scan) return;
-    setPhase("deploying");
+    if (!deployPrompt.trim()) return;
+    setPhase("creating");
     setErrMsg("");
+    setLiveEvents([]);
+    setPlan(null);
+    setAppURL("");
 
-    // Get or create team
-    let teamId = localStorage.getItem("zkloud_team_id");
-    if (!teamId) {
-      const name = "team-" + Math.random().toString(36).slice(2, 9);
-      const res = await apiFetch(`/teams`, {
-        method: "POST",
-        body: JSON.stringify({ name, public_key: "" }),
-      });
-      if (!res.ok) { setPhase("error"); setErrMsg("Could not create team"); return; }
-      const t = await res.json();
-      localStorage.setItem("zkloud_team_id", t.id);
-      localStorage.setItem("zkloud_team_name", t.name);
-      teamId = t.id;
-    }
+    const teamId = await ensureTeam();
+    if (!teamId) { setErrMsg("Could not create team. Please try again."); setPhase("error"); return; }
 
     try {
-      // 1. Allocate encrypted workspace
-      const wsRes = await apiFetch(`/workspaces`, {
+      const body: Record<string, string> = { team_id: teamId, prompt: deployPrompt };
+      if (repoURL.trim()) body.repo_url = repoURL.trim();
+
+      const sessRes = await apiFetch(`/sessions`, {
         method: "POST",
-        body: JSON.stringify({
-          team_id: teamId,
-          ram_mb: RAM_MB[ram] ?? 2048,
-          cpu_cores: CPU_CORES[cpu] ?? 2,
-          session_id: sessionId || undefined,
-        }),
+        body: JSON.stringify(body),
       });
-      if (!wsRes.ok) throw new Error("Workspace allocation failed: " + await wsRes.text());
-      const ws: Workspace = await wsRes.json();
-      setWorkspace(ws);
-
-      // 2. Wait for workspace to be ready (poll status)
-      let ready = ws.status === "ready";
-      for (let i = 0; i < 60 && !ready; i++) {
-        await new Promise((r) => setTimeout(r, 3000));
-        const st = await apiFetch(`/workspaces/${ws.container_id}/status`).then((r) => r.json());
-        if (st.status === "ready") ready = true;
-      }
-      if (!ready) throw new Error("Workspace timed out waiting to be ready");
-
-      // 3. Deploy the repo into the workspace
-      const depRes = await apiFetch(`/workspaces/${ws.container_id}/deploy`, {
-        method: "POST",
-        body: JSON.stringify({
-          repo_url: scan.repo_url,
-          option_index: selectedOption,
-          env_vars: envVars,
-          wallet: address ?? "",
-        }),
-      });
-      if (!depRes.ok) throw new Error("Deploy failed: " + await depRes.text());
-      const dep: DeployResult = await depRes.json();
-      setDeployResult(dep);
-      setPhase("done");
-
-      // Save to local history
-      const hist: string[] = JSON.parse(localStorage.getItem("zkloud_workspaces") ?? "[]");
-      localStorage.setItem("zkloud_workspaces", JSON.stringify([ws.container_id, ...hist].slice(0, 20)));
+      if (!sessRes.ok) throw new Error("Session creation failed: " + await sessRes.text());
+      const sess = await sessRes.json();
+      setSessionId(sess.id);
+      setPhase("streaming");
+      connectStream(sess.id);
     } catch (e) {
-      setPhase("error");
       setErrMsg(String(e));
+      setPhase("error");
     }
+  }
+
+  async function handleConfirm(approved: boolean) {
+    if (!sessionId) return;
+    setConfirming(true);
+    try {
+      const res = await apiFetch(`/sessions/${sessionId}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ approved }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      if (approved) {
+        setPhase("building");
+      } else {
+        setErrMsg("Deployment cancelled.");
+        setPhase("error");
+        wsRef.current?.close();
+      }
+    } catch (e) {
+      setErrMsg(String(e));
+      setPhase("error");
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  function handlePickDone() {
+    const opt = scan?.options[selectedOption];
+    if (opt) {
+      setDeployPrompt(`Deploy the ${opt.framework} ${opt.type} on port ${opt.port}. Run: ${opt.install_cmd}. Start with: ${opt.start_cmd}.`);
+    } else {
+      setDeployPrompt(`Deploy the repo at ${repoURL} and start the application.`);
+    }
+    setPhase("prompt");
+  }
+
+  function resetDeploy() {
+    wsRef.current?.close();
+    setPhase("repo"); setScan(null); setRepoURL(""); setLiveEvents([]); setPlan(null); setAppURL(""); setSessionId(""); setErrMsg(""); setDeployPrompt("");
   }
 
   function connectGitHub() {
@@ -258,21 +333,25 @@ export default function DeployPage() {
     try {
       const res = await apiFetch(`/repos/scan`, {
         method: "POST",
-        body: JSON.stringify({ repo_url: url, wallet: githubWallet || address || "" }),
+        body: JSON.stringify({ repo_url: url }),
       });
       const text = await res.text();
       if (!res.ok) {
         if (text.includes("private repo") || text.includes("connect GitHub")) {
-          throw new Error("🔒 This repo is private. Click \"Authorize with GitHub\" below to connect your account first.");
+          throw new Error("🔒 This repo is private. Connect GitHub to authorize access.");
         }
         throw new Error(text);
       }
       const data: RepoScan = JSON.parse(text);
-      if (!data.options?.length) throw new Error("No deployable components detected in this repo.\n\nSupported: Next.js, React, Vue, Express, FastAPI, Flask, Django, Go, static HTML");
+      if (!data.options?.length) {
+        // No detection — skip straight to prompt
+        setScan(null);
+        setDeployPrompt(`Deploy the repo at ${url} on its default port.`);
+        setPhase("prompt");
+        return;
+      }
       setScan(data);
-      const defaults: Record<string, string> = {};
-      (data.env_vars ?? []).forEach((k) => (defaults[k] = ""));
-      setEnvVars(defaults);
+      setSelectedOption(0);
       setPhase("pick");
     } catch (e) {
       setErrMsg(String(e));
@@ -282,24 +361,29 @@ export default function DeployPage() {
 
   // ── stage labels ─────────────────────────────────────────────────────────────
 
-  const stageStatus = (s: Phase[]) => {
-    if (s.includes(phase)) return "active";
-    const after = (pivot: Phase) => ["repos","scanning","pick","vm","deploying","done"].indexOf(phase) > ["repos","scanning","pick","vm","deploying","done"].indexOf(pivot);
-    if (s.includes("repo") && after("scanning")) return "done";
-    if (s.includes("pick") && after("pick")) return "done";
-    if (s.includes("vm") && after("vm")) return "done";
+  const PHASE_ORDER: Phase[] = ["repo","repos","scanning","pick","prompt","creating","streaming","awaiting_confirm","building","done"];
+
+  function stageStatus(phases: Phase[]) {
+    const currentIdx = PHASE_ORDER.indexOf(phase);
+    const stageMaxIdx = Math.max(...phases.map((p) => PHASE_ORDER.indexOf(p)));
+    const stageMinIdx = Math.min(...phases.map((p) => PHASE_ORDER.indexOf(p)));
+    if (phases.includes(phase)) return "active";
+    if (currentIdx > stageMaxIdx) return "done";
+    if (currentIdx < stageMinIdx) return "pending";
     return "pending";
-  };
+  }
 
   const stages = [
     { id: ["repo","repos","scanning"] as Phase[], label: "Connect Repository", sub: repoURL ? repoURL.split("/").slice(-1)[0] : githubConnected ? "GitHub connected" : "Link source code" },
     { id: ["pick"] as Phase[], label: "Detect Stack", sub: scan ? `${scan.options.length} option${scan.options.length !== 1 ? "s" : ""} found` : "Auto-detect framework" },
-    { id: ["vm"] as Phase[], label: "Configure VM", sub: `${ram} · ${cpu}` },
-    { id: ["deploying","done"] as Phase[], label: "Deploy", sub: deployResult ? deployResult.framework : "Encrypted workspace" },
+    { id: ["prompt"] as Phase[], label: "Deployment Prompt", sub: deployPrompt ? deployPrompt.slice(0, 36) + "…" : "Describe what to deploy" },
+    { id: ["creating","streaming","awaiting_confirm","building","done"] as Phase[], label: "AI Agent Deploy", sub: phase === "done" ? "Live ✓" : phase === "awaiting_confirm" ? "Awaiting confirmation" : phase === "building" ? "Building…" : ["creating","streaming"].includes(phase) ? "Running…" : "Encrypted container" },
   ];
 
+  const isLivePhase = ["streaming","awaiting_confirm","building"].includes(phase);
+
   return (
-    <div style={{ display: "flex", height: "100vh", background: BG, fontFamily: "var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div style={{ display: "flex", height: "100vh", background: BG, fontFamily: 'Inter, var(--font-inter), "Inter Fallback", sans-serif', color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
@@ -310,10 +394,13 @@ export default function DeployPage() {
             <div>
               <p style={{ fontSize: 28, fontWeight: 900, color: "#F9FAFB", lineHeight: 1.2 }}>New Deployment</p>
               <p style={{ fontSize: 13, fontFamily: "monospace", color: "#6B7280", marginTop: 4 }}>
-                Encrypted workspace · blockchain-gated
+                AI agent · encrypted container · blockchain-gated
               </p>
             </div>
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <Link href="/sessions" style={{ display: "flex", alignItems: "center", height: 40, padding: "0 16px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: "#E5E7EB", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+                Sessions
+              </Link>
               <Link href="/" style={{ display: "flex", alignItems: "center", height: 40, padding: "0 16px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: "#E5E7EB", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
                 ← Dashboard
               </Link>
@@ -323,14 +410,18 @@ export default function DeployPage() {
           {/* Stat cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 }}>
             {[
-              { label: "Status", value: phase === "deploying" ? "Deploying…" : phase === "done" ? "Live" : phase === "error" ? "Failed" : phase === "scanning" ? "Scanning…" : "Ready", accent: ["deploying","scanning"].includes(phase) },
+              {
+                label: "Status",
+                value: phase === "creating" ? "Creating…" : isLivePhase ? "Agent running" : phase === "awaiting_confirm" ? "Awaiting confirm" : phase === "done" ? "Live ✓" : phase === "error" ? "Failed" : phase === "scanning" ? "Scanning…" : "Ready",
+                accent: ["creating","streaming","building"].includes(phase),
+              },
               { label: "Repository", value: repoURL ? repoURL.split("/").slice(-1)[0] || repoURL : "—" },
               { label: "Framework", value: scan?.options[selectedOption]?.framework ?? "—" },
-              { label: "VM", value: `${ram} / ${cpu}` },
+              { label: "Session ID", value: sessionId ? sessionId.slice(5, 20) + "…" : "—" },
             ].map((c) => (
               <div key={c.label} style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 12, padding: 16 }}>
                 <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 6 }}>{c.label}</p>
-                <p style={{ fontSize: 18, fontWeight: 700, color: c.accent ? ACCENT : "#F9FAFB" }}>{c.value}</p>
+                <p style={{ fontSize: 16, fontWeight: 700, color: c.accent ? ACCENT : "#F9FAFB" }}>{c.value}</p>
               </div>
             ))}
           </div>
@@ -343,9 +434,6 @@ export default function DeployPage() {
               <h2 style={{ fontSize: 16, fontWeight: 700, color: "#F9FAFB", marginBottom: 16 }}>Pipeline Stages</h2>
               {stages.map((s, i) => {
                 const st = stageStatus(s.id);
-                const dotColor = st === "done" ? "#28A745" : st === "active" ? ACCENT : "#4B5563";
-                const bgColor = st === "active" ? `${ACCENT}14` : "transparent";
-                const border = st === "active" ? "1px solid #7c45ff33" : "1px solid transparent";
                 return (
                   <div key={i} style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "0 16px" }}>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
@@ -362,7 +450,7 @@ export default function DeployPage() {
                       </div>
                       {i < stages.length - 1 && <div style={{ width: 1, flex: 1, background: "#2C2C2E", minHeight: 24 }} />}
                     </div>
-                    <div style={{ paddingBottom: 20, paddingLeft: 4, background: bgColor, border, borderRadius: 8, padding: st === "active" ? "10px 12px" : "4px 0", marginBottom: st === "active" ? 4 : 0 }}>
+                    <div style={{ background: st === "active" ? `${ACCENT}14` : "transparent", border: st === "active" ? "1px solid #7c45ff33" : "1px solid transparent", borderRadius: 8, padding: st === "active" ? "10px 12px" : "4px 0", marginBottom: st === "active" ? 4 : 0, paddingBottom: 20 }}>
                       <p style={{ fontSize: 13, fontWeight: 600, color: st === "active" ? ACCENT : st === "done" ? "#F3F4F6" : "#4B5563" }}>
                         {s.label}
                       </p>
@@ -371,6 +459,14 @@ export default function DeployPage() {
                   </div>
                 );
               })}
+              {sessionId && (
+                <div style={{ marginTop: 16, padding: 12, background: "#161618", borderRadius: 8, border: `1px solid ${BORDER}` }}>
+                  <p style={{ fontSize: 11, color: "#6B7280", marginBottom: 4 }}>Active Session</p>
+                  <Link href={`/sessions/${sessionId}`} style={{ fontSize: 12, fontFamily: "monospace", color: ACCENT, textDecoration: "none" }}>
+                    {sessionId.slice(0, 28)}…
+                  </Link>
+                </div>
+              )}
             </div>
 
             {/* Right: active panel */}
@@ -379,8 +475,6 @@ export default function DeployPage() {
               {/* ── Stage 1: Connect repo / repo picker ── */}
               {(phase === "repo" || phase === "repos" || phase === "scanning") && (
                 <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
-
-                  {/* Header */}
                   <div style={{ padding: "20px 24px", borderBottom: `1px solid ${BORDER}` }}>
                     <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Import Git Repository</p>
                     <p style={{ fontSize: 12, color: "#6B7280" }}>
@@ -388,13 +482,9 @@ export default function DeployPage() {
                     </p>
                   </div>
 
-                  {/* GitHub connect / paste URL */}
                   <div style={{ padding: "16px 24px", borderBottom: `1px solid ${BORDER}`, display: "flex", gap: 8 }}>
                     {!githubConnected ? (
-                      <button
-                        onClick={connectGitHub}
-                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", borderRadius: 8, background: "#21262D", border: "1px solid #30363D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
-                      >
+                      <button onClick={connectGitHub} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 16px", borderRadius: 8, background: "#21262D", border: "1px solid #30363D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
                         Connect GitHub
                       </button>
@@ -404,78 +494,47 @@ export default function DeployPage() {
                         GitHub Connected
                       </div>
                     )}
-                    <input
-                      type="text"
-                      placeholder="Or paste a URL: https://github.com/owner/repo"
-                      value={repoURL}
-                      onChange={(e) => setRepoURL(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleScan()}
-                      style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 13, outline: "none" }}
-                    />
-                    <button
-                      onClick={handleScan}
-                      disabled={!repoURL.trim() || phase === "scanning"}
-                      style={{ padding: "9px 18px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", opacity: !repoURL.trim() ? 0.4 : 1, whiteSpace: "nowrap" }}
-                    >
+                    <input type="text" placeholder="Or paste a URL: https://github.com/owner/repo" value={repoURL} onChange={(e) => setRepoURL(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleScan()} style={{ flex: 1, padding: "9px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 13, outline: "none" }} />
+                    <button onClick={handleScan} disabled={!repoURL.trim() || phase === "scanning"} style={{ padding: "9px 18px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: !repoURL.trim() ? "default" : "pointer", opacity: !repoURL.trim() ? 0.4 : 1, whiteSpace: "nowrap" }}>
                       {phase === "scanning" ? "Scanning…" : "Import"}
                     </button>
                   </div>
 
-                  {/* Repo search (only when connected) */}
+                  <div style={{ padding: "10px 24px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, color: "#4B5563" }}>No repo?</span>
+                    <button onClick={() => { setDeployPrompt(""); setPhase("prompt"); }} style={{ fontSize: 12, fontWeight: 600, color: ACCENT, background: "transparent", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+                      Create app from prompt only →
+                    </button>
+                  </div>
+
                   {githubConnected && (
                     <div style={{ padding: "12px 24px", borderBottom: `1px solid ${BORDER}` }}>
-                      <input
-                        type="text"
-                        placeholder="Search repositories…"
-                        value={repoSearch}
-                        onChange={(e) => setRepoSearch(e.target.value)}
-                        style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 13, outline: "none", boxSizing: "border-box" }}
-                      />
+                      <input type="text" placeholder="Search repositories…" value={repoSearch} onChange={(e) => setRepoSearch(e.target.value)} style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 13, outline: "none", boxSizing: "border-box" }} />
                     </div>
                   )}
 
-                  {/* Repo list */}
                   <div style={{ flex: 1, overflowY: "auto" }}>
-                    {loadingRepos && (
-                      <div style={{ padding: 24, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading repositories…</div>
-                    )}
-                    {!loadingRepos && githubConnected && repos.length === 0 && (
-                      <div style={{ padding: 24, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No repositories found.</div>
-                    )}
-                    {repos
-                      .filter((r) => !repoSearch || r.full_name.toLowerCase().includes(repoSearch.toLowerCase()))
-                      .map((repo) => (
-                        <button
-                          key={repo.full_name}
-                          onClick={() => selectRepo(repo)}
-                          disabled={phase === "scanning"}
-                          style={{ width: "100%", textAlign: "left", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", borderBottom: `1px solid ${BORDER}`, cursor: "pointer", gap: 12 }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#161618")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
-                            <div style={{ minWidth: 0 }}>
-                              <p style={{ fontSize: 13, fontWeight: 600, color: "#F3F4F6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                                {repo.full_name}
-                              </p>
-                              {repo.description && (
-                                <p style={{ fontSize: 11, color: "#4B5563", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{repo.description}</p>
-                              )}
-                            </div>
+                    {loadingRepos && <div style={{ padding: 24, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading repositories…</div>}
+                    {!loadingRepos && githubConnected && repos.length === 0 && <div style={{ padding: 24, textAlign: "center", color: "#6B7280", fontSize: 13 }}>No repositories found.</div>}
+                    {repos.filter((r) => !repoSearch || r.full_name.toLowerCase().includes(repoSearch.toLowerCase())).map((repo) => (
+                      <button key={repo.full_name} onClick={() => selectRepo(repo)} disabled={phase === "scanning"} style={{ width: "100%", textAlign: "left", padding: "14px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "transparent", border: "none", borderBottom: `1px solid ${BORDER}`, cursor: "pointer", gap: 12 }} onMouseEnter={(e) => (e.currentTarget.style.background = "#161618")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: "#F3F4F6", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{repo.full_name}</p>
+                            {repo.description && <p style={{ fontSize: 11, color: "#4B5563", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{repo.description}</p>}
                           </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                            {repo.language && <span style={{ fontSize: 11, color: "#6B7280" }}>{repo.language}</span>}
-                            {repo.private && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.06)", color: "#9CA3AF" }}>Private</span>}
-                            <span style={{ fontSize: 12, color: ACCENT, fontWeight: 600 }}>Import →</span>
-                          </div>
-                        </button>
-                      ))
-                    }
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                          {repo.language && <span style={{ fontSize: 11, color: "#6B7280" }}>{repo.language}</span>}
+                          {repo.private && <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: "rgba(255,255,255,0.06)", color: "#9CA3AF" }}>Private</span>}
+                          <span style={{ fontSize: 12, color: ACCENT, fontWeight: 600 }}>Import →</span>
+                        </div>
+                      </button>
+                    ))}
                     {!githubConnected && phase === "repo" && (
                       <div style={{ padding: 32, textAlign: "center", color: "#4B5563", fontSize: 13 }}>
-                        Connect GitHub to see your repositories<br />
-                        <span style={{ fontSize: 11 }}>or paste a public URL above</span>
+                        Connect GitHub to see your repositories<br /><span style={{ fontSize: 11 }}>or paste a public URL above</span>
                       </div>
                     )}
                   </div>
@@ -489,162 +548,164 @@ export default function DeployPage() {
                     <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Detected Stack</p>
                     <p style={{ fontSize: 12, color: "#6B7280" }}>Select what to deploy from <span style={{ fontFamily: "monospace" }}>{scan.repo_url.split("/").slice(-1)[0]}</span></p>
                   </div>
-
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {scan.options.map((opt, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setSelectedOption(i)}
-                        style={{
-                          textAlign: "left", padding: 16, borderRadius: 10,
-                          border: `1px solid ${selectedOption === i ? ACCENT : "#2C2C2E"}`,
-                          background: selectedOption === i ? `${ACCENT}12` : "#0A0A0A",
-                          cursor: "pointer",
-                        }}
-                      >
+                      <button key={i} onClick={() => setSelectedOption(i)} style={{ textAlign: "left", padding: 16, borderRadius: 10, border: `1px solid ${selectedOption === i ? ACCENT : "#2C2C2E"}`, background: selectedOption === i ? `${ACCENT}12` : "#0A0A0A", cursor: "pointer" }}>
                         <FrameworkBadge opt={opt} />
                       </button>
                     ))}
                   </div>
-
-                  {/* Env vars */}
-                  {Object.keys(envVars).length > 0 && (
-                    <div>
-                      <p style={{ fontSize: 12, fontWeight: 600, color: "#9CA3AF", marginBottom: 8 }}>Environment Variables</p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {Object.keys(envVars).map((k) => (
-                          <div key={k} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <span style={{ fontSize: 11, fontFamily: "monospace", color: "#6B7280", minWidth: 140 }}>{k}</span>
-                            <input
-                              type="text"
-                              placeholder="value"
-                              value={envVars[k]}
-                              onChange={(e) => setEnvVars((prev) => ({ ...prev, [k]: e.target.value }))}
-                              style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 12, outline: "none", fontFamily: "monospace" }}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => setPhase("vm")}
-                    style={{ alignSelf: "flex-end", padding: "10px 24px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer" }}
-                  >
-                    Configure VM →
+                  <button onClick={handlePickDone} style={{ alignSelf: "flex-end", padding: "10px 24px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer" }}>
+                    Configure Prompt →
                   </button>
                 </div>
               )}
 
-              {/* ── Stage 3: VM config ── */}
-              {phase === "vm" && (
+              {/* ── Stage 3: Prompt ── */}
+              {phase === "prompt" && (
                 <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 20 }}>
                   <div>
-                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Configure Workspace</p>
-                    <p style={{ fontSize: 12, color: "#6B7280" }}>LUKS-encrypted VM — your files are AES-256 at rest</p>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB", marginBottom: 4 }}>Deployment Prompt</p>
+                    <p style={{ fontSize: 12, color: "#6B7280" }}>Tell the AI agent what to deploy. It will create a plan for your confirmation.</p>
                   </div>
-
-                  <div>
-                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>Memory</p>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                      {Object.keys(RAM_MB).map((r) => (
-                        <button key={r} onClick={() => setRam(r)} style={{ padding: "8px 0", borderRadius: 8, border: `1px solid ${ram === r ? ACCENT : "#2C2C2E"}`, background: ram === r ? `${ACCENT}1a` : "transparent", color: ram === r ? ACCENT : "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{r}</button>
-                      ))}
+                  {repoURL && (
+                    <div style={{ padding: "10px 12px", borderRadius: 8, background: "#0A0A0A", border: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 8 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="1.8"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "#9CA3AF" }}>{repoURL}</span>
                     </div>
-                  </div>
-
-                  <div>
-                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>CPU</p>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                      {Object.keys(CPU_CORES).map((c) => (
-                        <button key={c} onClick={() => setCpu(c)} style={{ padding: "8px 0", borderRadius: 8, border: `1px solid ${cpu === c ? ACCENT : "#2C2C2E"}`, background: cpu === c ? `${ACCENT}1a` : "transparent", color: cpu === c ? ACCENT : "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{c}</button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <p style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 6 }}>Session ID <span style={{ color: "#4B5563" }}>(optional — gates vault key via EAS attestation)</span></p>
-                    <input
-                      type="text"
-                      placeholder="sess-..."
-                      value={sessionId}
-                      onChange={(e) => setSessionId(e.target.value)}
-                      style={{ width: "100%", padding: "8px 12px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 12, fontFamily: "monospace", outline: "none", boxSizing: "border-box" }}
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <label style={{ fontSize: 12, color: "#9CA3AF", fontWeight: 600 }}>Prompt</label>
+                    <textarea
+                      value={deployPrompt}
+                      onChange={(e) => setDeployPrompt(e.target.value)}
+                      rows={5}
+                      placeholder={repoURL ? `e.g. "Deploy the repo on port 3000. Set NODE_ENV=production."` : `e.g. "Create a Node.js Express API with a /health endpoint on port 3000."`}
+                      style={{ padding: "12px", borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: "#E5E7EB", fontSize: 13, resize: "vertical", outline: "none", fontFamily: "inherit" }}
                     />
+                    <p style={{ fontSize: 11, color: "#4B5563" }}>The agent will analyze, generate a plan, and wait for your confirmation before building.</p>
                   </div>
-
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
-                    <p style={{ fontSize: 12, fontFamily: "monospace", color: "#6B7280" }}>
-                      {ram} · {cpu} · ~${((RAM_MB[ram] / 1024) * 0.02 + CPU_CORES[cpu] * 0.01).toFixed(2)}/hr
-                    </p>
-                    <button
-                      onClick={handleDeploy}
-                      style={{ padding: "10px 24px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer" }}
-                    >
-                      Deploy 🚀
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {["Deploy on port 3000","Deploy with Docker","Set NODE_ENV=production","Run npm install && npm start"].map((s) => (
+                      <button key={s} onClick={() => setDeployPrompt((p) => (p ? p + " " + s + "." : s + "."))} style={{ padding: "5px 12px", borderRadius: 99, fontSize: 11, fontWeight: 600, color: "#9CA3AF", background: "#161618", border: `1px solid ${BORDER}`, cursor: "pointer" }}>
+                        + {s}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: `1px solid ${BORDER}` }}>
+                    <button onClick={() => setPhase(scan ? "pick" : "repo")} style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(255,255,255,0.05)", color: "#9CA3AF", fontSize: 13, fontWeight: 600, border: `1px solid ${BORDER}`, cursor: "pointer" }}>
+                      ← Back
+                    </button>
+                    <button onClick={handleDeploy} disabled={!deployPrompt.trim()} style={{ padding: "10px 24px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: !deployPrompt.trim() ? "default" : "pointer", opacity: !deployPrompt.trim() ? 0.4 : 1 }}>
+                      Launch Agent 🚀
                     </button>
                   </div>
                 </div>
               )}
 
-              {/* ── Stage 4: Deploying ── */}
-              {phase === "deploying" && (
-                <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-                  <p style={{ fontSize: 15, fontWeight: 700, color: "#F9FAFB" }}>Deploying…</p>
-                  {[
-                    { done: !!workspace, label: "Allocating encrypted workspace" },
-                    { done: !!deployResult, label: `Cloning ${repoURL.split("/").slice(-1)[0]}` },
-                    { done: !!deployResult, label: `Installing dependencies & starting ${scan?.options[selectedOption]?.framework}` },
-                  ].map((s, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      {s.done
-                        ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        : <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
-                      }
-                      <span style={{ fontSize: 13, color: s.done ? "#9CA3AF" : "#E5E7EB" }}>{s.label}</span>
+              {/* ── Creating session ── */}
+              {phase === "creating" && (
+                <div style={{ padding: 40, display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                  <svg className="animate-spin" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke={ACCENT} strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/>
+                  </svg>
+                  <p style={{ fontSize: 14, color: "#9CA3AF" }}>Creating deployment session…</p>
+                </div>
+              )}
+
+              {/* ── Live Streaming / Awaiting Confirm / Building ── */}
+              {isLivePhase && (
+                <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 400 }}>
+                  <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: phase === "awaiting_confirm" ? "#eab308" : ACCENT }} className="animate-pulse" />
+                      <span style={{ fontSize: 14, fontWeight: 700, color: "#F9FAFB" }}>
+                        {phase === "awaiting_confirm" ? "Plan Ready — Confirm to Proceed" : phase === "building" ? "Building Deployment…" : "Agent Running"}
+                      </span>
                     </div>
-                  ))}
+                    <Link href={`/sessions/${sessionId}`} style={{ fontSize: 11, color: "#6B7280", textDecoration: "none" }}>View full session →</Link>
+                  </div>
+
+                  {/* Plan confirmation */}
+                  {phase === "awaiting_confirm" && plan && (
+                    <div style={{ padding: 20, borderBottom: `1px solid ${BORDER}`, background: "#0e1117" }}>
+                      <p style={{ fontSize: 13, fontWeight: 700, color: "#eab308", marginBottom: 10 }}>📋 Deployment Plan</p>
+                      <p style={{ fontSize: 13, color: "#D1D5DB", marginBottom: 12, lineHeight: 1.5 }}>{plan.summary}</p>
+                      {plan.containers && plan.containers.length > 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                          {plan.containers.map((c, i) => (
+                            <div key={i} style={{ display: "flex", gap: 8, padding: "8px 12px", borderRadius: 6, background: "#161618", border: `1px solid ${BORDER}` }}>
+                              <span style={{ fontSize: 12, fontFamily: "monospace", color: ACCENT, minWidth: 80 }}>{c.name}</span>
+                              <span style={{ fontSize: 12, fontFamily: "monospace", color: "#6B7280" }}>{c.image}</span>
+                              <span style={{ marginLeft: "auto", fontSize: 11, color: "#4B5563" }}>{c.ram_mb}MB · {c.cpu_cores} cpu</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {plan.estimated_cost_per_hour !== undefined && (
+                        <p style={{ fontSize: 12, color: "#4B5563", marginBottom: 12 }}>Estimated: ~${plan.estimated_cost_per_hour.toFixed(3)}/hr</p>
+                      )}
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={() => handleConfirm(true)} disabled={confirming} style={{ flex: 1, padding: "10px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, border: "none", cursor: confirming ? "default" : "pointer", opacity: confirming ? 0.6 : 1 }}>
+                          {confirming ? "Confirming…" : "✓ Approve & Deploy"}
+                        </button>
+                        <button onClick={() => handleConfirm(false)} disabled={confirming} style={{ padding: "10px 20px", borderRadius: 8, background: "rgba(220,53,69,0.1)", color: "#DC3545", fontSize: 13, fontWeight: 700, border: "1px solid rgba(220,53,69,0.3)", cursor: confirming ? "default" : "pointer" }}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Live event log */}
+                  <div style={{ flex: 1, overflowY: "auto", padding: 16, fontFamily: "monospace", fontSize: 12, display: "flex", flexDirection: "column", gap: 4, background: "#0A0A0A" }}>
+                    {liveEvents.length === 0 && <p style={{ color: "#4B5563" }}>Waiting for agent events…</p>}
+                    {liveEvents.map((evt, i) => {
+                      const color = evt.type === "plan" ? "#eab308" : evt.type === "done" ? "#22c55e" : evt.type === "error" ? "#ef4444" : evt.type === "action" ? "#60a5fa" : "#9CA3AF";
+                      const prefix = evt.type === "plan" ? "📋 plan " : evt.type === "done" ? "✓ done " : evt.type === "error" ? "✗ error " : evt.type === "action" ? "⚡ " : "· ";
+                      const text = evt.type === "message" ? (typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data)) : evt.type === "plan" ? (evt.data?.summary ?? "Plan received") : evt.type === "action" ? (evt.data?.tool ?? JSON.stringify(evt.data)) : evt.type === "done" ? "Deployment complete" : evt.type === "error" ? (evt.data?.message ?? String(evt.data)) : JSON.stringify(evt.data);
+                      return (
+                        <div key={i} style={{ color, lineHeight: 1.5 }}>
+                          <span style={{ color: "#374151" }}>{new Date(evt.ts).toLocaleTimeString()} </span>
+                          <span style={{ fontWeight: 600 }}>{prefix}</span>
+                          <span style={{ color: "#D1D5DB" }}>{String(text)}</span>
+                        </div>
+                      );
+                    })}
+                    <div ref={eventsEndRef} />
+                  </div>
                 </div>
               )}
 
               {/* ── Done ── */}
-              {phase === "done" && deployResult && workspace && (
+              {phase === "done" && (
                 <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#28A745" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-                    <p style={{ fontSize: 15, fontWeight: 700, color: "#28A745" }}>Deployed Successfully</p>
+                    <p style={{ fontSize: 15, fontWeight: 700, color: "#28A745" }}>Deployment Successful</p>
                   </div>
-
                   <div style={{ background: BG, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-                    {[
-                      { label: "Framework", value: deployResult.framework },
-                      { label: "Container", value: deployResult.container_id },
-                      { label: "App URL", value: deployResult.app_url, link: true },
-                      { label: "Encrypted at", value: workspace.storage_path, mono: true },
-                    ].map((r) => (
-                      <div key={r.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                        <span style={{ fontSize: 12, color: "#6B7280" }}>{r.label}</span>
-                        {r.link
-                          ? <a href={r.value} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontFamily: "monospace", color: ACCENT }}>{r.value}</a>
-                          : <span style={{ fontSize: 12, fontFamily: r.mono ? "monospace" : undefined, color: "#E5E7EB" }}>{r.value}</span>
-                        }
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontSize: 12, color: "#6B7280" }}>Session ID</span>
+                      <span style={{ fontSize: 12, fontFamily: "monospace", color: "#E5E7EB" }}>{sessionId}</span>
+                    </div>
+                    {appURL && (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 12, color: "#6B7280" }}>App URL</span>
+                        <a href={appURL} target="_blank" rel="noreferrer" style={{ fontSize: 12, fontFamily: "monospace", color: ACCENT }}>{appURL}</a>
                       </div>
-                    ))}
+                    )}
                   </div>
-
                   <div style={{ display: "flex", gap: 10 }}>
-                    <Link
-                      href={`/workspaces/${deployResult.container_id}`}
-                      style={{ flex: 1, textAlign: "center", padding: "10px 16px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, textDecoration: "none" }}
-                    >
-                      Open Terminal →
+                    {appURL && (
+                      <a href={appURL} target="_blank" rel="noreferrer" style={{ flex: 1, textAlign: "center", padding: "10px 16px", borderRadius: 8, background: ACCENT, color: ACCENT_FG, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+                        Open App ↗
+                      </a>
+                    )}
+                    <Link href={`/sessions/${sessionId}`} style={{ flex: 1, textAlign: "center", padding: "10px 16px", borderRadius: 8, background: "rgba(255,255,255,0.07)", color: "#E5E7EB", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+                      View Session Log
                     </Link>
-                    <button
-                      onClick={() => { setPhase("repo"); setScan(null); setWorkspace(null); setDeployResult(null); setRepoURL(""); }}
-                      style={{ padding: "10px 16px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}
-                    >
-                      Deploy Another
+                    <button onClick={resetDeploy} style={{ padding: "10px 16px", borderRadius: 8, background: "rgba(255,255,255,0.04)", color: "#9CA3AF", fontSize: 13, fontWeight: 600, border: `1px solid ${BORDER}`, cursor: "pointer" }}>
+                      Deploy Again
                     </button>
                   </div>
                 </div>
@@ -659,17 +720,18 @@ export default function DeployPage() {
                   <pre style={{ fontSize: 12, fontFamily: "monospace", color: "#9CA3AF", whiteSpace: "pre-wrap", background: BG, border: `1px solid ${BORDER}`, borderRadius: 8, padding: 12 }}>{errMsg}</pre>
                   <div style={{ display: "flex", gap: 8 }}>
                     {errMsg.includes("private") && (
-                      <button
-                        onClick={connectGitHub}
-                        style={{ padding: "8px 16px", borderRadius: 8, background: "#21262D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "1px solid #30363D", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0 0 22 12.017C22 6.484 17.522 2 12 2z"/></svg>
+                      <button onClick={connectGitHub} style={{ padding: "8px 16px", borderRadius: 8, background: "#21262D", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "1px solid #30363D", cursor: "pointer" }}>
                         Connect GitHub
                       </button>
                     )}
-                    <button onClick={() => setPhase("repo")} style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>
+                    <button onClick={resetDeploy} style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(255,255,255,0.06)", color: "#E5E7EB", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer" }}>
                       ← Try again
                     </button>
+                    {sessionId && (
+                      <Link href={`/sessions/${sessionId}`} style={{ padding: "8px 16px", borderRadius: 8, background: "rgba(255,255,255,0.04)", color: "#9CA3AF", fontSize: 13, fontWeight: 600, textDecoration: "none", border: `1px solid ${BORDER}` }}>
+                        View Session
+                      </Link>
+                    )}
                   </div>
                 </div>
               )}
@@ -681,3 +743,4 @@ export default function DeployPage() {
     </div>
   );
 }
+

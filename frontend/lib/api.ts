@@ -28,3 +28,84 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     },
   });
 }
+
+// ── Typed API helpers ──────────────────────────────────────────────────────
+
+export type Session = {
+  id: string;
+  team_id: string;
+  prompt: string;
+  state: "running" | "completed" | "failed";
+  created_at: string;
+  updated_at: string;
+};
+
+export type SessionLog = {
+  id: number;
+  session_id: string;
+  team_id: string;
+  actions: ActionItem[];
+  created_at: string;
+};
+
+export type ActionItem = {
+  index: number;
+  tool: string;
+  input: Record<string, unknown>;
+  result: unknown;
+  error?: string;
+  timestamp: string;
+  hash: string;
+};
+
+export type Team = {
+  id: string;
+  name: string;
+  owner: string;
+};
+
+export async function createTeam(name: string): Promise<Team> {
+  const r = await apiFetch("/teams", { method: "POST", body: JSON.stringify({ name }) });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function createSession(teamId: string, prompt: string, repoUrl?: string): Promise<Session> {
+  const r = await apiFetch("/sessions", {
+    method: "POST",
+    body: JSON.stringify({ team_id: teamId, prompt, repo_url: repoUrl }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function confirmSession(sessionId: string, approved: boolean): Promise<void> {
+  const r = await apiFetch(`/sessions/${sessionId}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ approved }),
+  });
+  if (!r.ok) throw new Error(await r.text());
+}
+
+export async function getSession(sessionId: string): Promise<Session> {
+  const r = await apiFetch(`/sessions/${sessionId}`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function getSessionLog(sessionId: string): Promise<SessionLog> {
+  const r = await apiFetch(`/sessions/${sessionId}/log`);
+  if (!r.ok) throw new Error(await r.text());
+  const raw = await r.json();
+  return {
+    ...raw,
+    actions: typeof raw.actions === "string" ? JSON.parse(raw.actions) : raw.actions ?? [],
+  };
+}
+
+export async function listSessions(teamId: string): Promise<Session[]> {
+  const r = await apiFetch(`/teams/${teamId}/sessions`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+

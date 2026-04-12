@@ -99,7 +99,8 @@ html {
 body {
   background: #111111;
   color: #f9fafb;
-  font-family: var(--font-inter), Inter, sans-serif;
+  font-family: var(--font-inter), Inter, "Inter Fallback", sans-serif;
+  font-size: 20px;
   -webkit-font-smoothing: antialiased;
 }
 

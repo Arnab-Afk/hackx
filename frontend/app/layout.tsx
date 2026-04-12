@@ -6,6 +6,7 @@ import { Web3Providers } from "@/components/Web3Providers";
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
+  fallback: ["Inter Fallback", "sans-serif"],
 });
 
 const spaceMono = Space_Mono({
