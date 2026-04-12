@@ -94,7 +94,7 @@ export function buildTransferTypedData(
       from,
       to: accepts.payTo as `0x${string}`,
       value: BigInt(accepts.maxAmountRequired),
-      validAfter: 0n,
+      validAfter: BigInt(0),
       validBefore,
       nonce: randomNonce(),
     },
