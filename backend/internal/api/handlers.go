@@ -124,6 +124,10 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 	r.Get("/teams/{teamID}/attestations", srv.listTeamAttestations)
 	r.Get("/teams/{teamID}/workspaces", srv.listTeamWorkspaces)
 
+	// Account — get or create the account (team) for the authenticated wallet
+	r.Get("/account", srv.getAccount)
+	r.Patch("/account", srv.updateAccount)
+
 	// Payments — list x402 payments for a wallet
 	r.Get("/payments", srv.listPayments)
 
@@ -208,6 +212,48 @@ func (s *Server) getTeam(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "team not found", http.StatusNotFound)
 		return
 	}
+	jsonResponse(w, http.StatusOK, team)
+}
+
+// GET /account — get or auto-create the account for the authenticated wallet
+func (s *Server) getAccount(w http.ResponseWriter, r *http.Request) {
+	wallet, ok := s.walletFromRequest(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	team, err := s.store.GetOrCreateTeamByWallet(r.Context(), wallet)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("account: %v", err), http.StatusInternalServerError)
+		return
+	}
+	jsonResponse(w, http.StatusOK, team)
+}
+
+// PATCH /account — update account name
+func (s *Server) updateAccount(w http.ResponseWriter, r *http.Request) {
+	wallet, ok := s.walletFromRequest(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
+		return
+	}
+	team, err := s.store.GetOrCreateTeamByWallet(r.Context(), wallet)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("account: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := s.store.UpdateTeamName(r.Context(), team.ID, req.Name); err != nil {
+		http.Error(w, "update failed", http.StatusInternalServerError)
+		return
+	}
+	team.Name = req.Name
 	jsonResponse(w, http.StatusOK, team)
 }
 

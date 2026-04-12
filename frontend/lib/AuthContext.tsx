@@ -50,8 +50,10 @@ type AuthState = {
   isConnected: boolean;
   token: string | undefined;
   isAuthenticated: boolean;
+  isAuthenticating: boolean;
   teamId: string | undefined;
   teamName: string | undefined;
+  isNewAccount: boolean;
   authenticate: () => Promise<void>;
   setTeam: (id: string, name?: string) => void;
   addWorkspace: (containerId: string) => void;
@@ -63,8 +65,10 @@ const DEFAULT: AuthState = {
   isConnected: false,
   token: undefined,
   isAuthenticated: false,
+  isAuthenticating: false,
   teamId: undefined,
   teamName: undefined,
+  isNewAccount: false,
   authenticate: async () => {},
   setTeam: () => {},
   addWorkspace: () => {},
@@ -98,7 +102,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return localStorage.getItem(STORAGE.TEAM_NAME) ?? undefined;
   });
 
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [isNewAccount, setIsNewAccount] = useState(false);
+
   const isAuthenticated = isTokenValid(token);
+
+  // ----- fetchAccount — called after getting a valid token ---------------
+  const fetchAccount = useCallback(async (t: string) => {
+    try {
+      const res = await fetch(`${API}/account`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      if (!res.ok) return;
+      const account = await res.json();
+      const defaultName = account.name?.startsWith("account-");
+      localStorage.setItem(STORAGE.TEAM_ID, account.id);
+      localStorage.setItem(STORAGE.TEAM_NAME, account.name ?? "");
+      setTeamIdState(account.id);
+      setTeamNameState(account.name);
+      setIsNewAccount(!!defaultName);
+    } catch {
+      // Non-fatal — user is still authenticated, just no teamId yet
+    }
+  }, []);
 
   // ----- setTeam ---------------------------------------------------------
   const setTeam = useCallback((id: string, name?: string) => {
@@ -118,13 +144,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE.JWT);
     localStorage.removeItem(STORAGE.WALLET);
+    localStorage.removeItem(STORAGE.TEAM_ID);
+    localStorage.removeItem(STORAGE.TEAM_NAME);
     setTokenState(undefined);
+    setTeamIdState(undefined);
+    setTeamNameState(undefined);
+    setIsNewAccount(false);
   }, []);
 
   // ----- authenticate ----------------------------------------------------
   const authenticate = useCallback(async () => {
     if (!address || authInFlight.current) return;
     authInFlight.current = true;
+    setIsAuthenticating(true);
 
     // Mark this wallet immediately so we don't re-trigger on next render
     localStorage.setItem(STORAGE.WALLET, address.toLowerCase());
@@ -152,12 +184,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(STORAGE.JWT, t);
       localStorage.setItem(STORAGE.WALLET, address.toLowerCase());
       setTokenState(t);
+
+      // Auto-create / load account for this wallet
+      await fetchAccount(t);
     } catch {
       // Wallet rejection or network error — silently ignore
     } finally {
       authInFlight.current = false;
+      setIsAuthenticating(false);
     }
-  }, [address, signMessageAsync]);
+  }, [address, signMessageAsync, fetchAccount]);
 
   // ----- Auto-authenticate on wallet connect / change --------------------
   useEffect(() => {
@@ -165,8 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const storedWallet = localStorage.getItem(STORAGE.WALLET);
     const walletMatches = storedWallet === address.toLowerCase();
-
     const storedToken = localStorage.getItem(STORAGE.JWT);
+    const storedTeamId = localStorage.getItem(STORAGE.TEAM_ID);
 
     if (!walletMatches || !isTokenValid(storedToken ?? undefined)) {
       // Need fresh auth
@@ -174,6 +210,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } else if (storedToken && !token) {
       // Wallet matches and token is valid — just hydrate state
       setTokenState(storedToken);
+      // Also load account if teamId is missing
+      if (!storedTeamId) {
+        fetchAccount(storedToken);
+      }
     }
   }, [isConnected, address]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -191,8 +231,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isConnected,
         token,
         isAuthenticated,
+        isAuthenticating,
         teamId,
         teamName,
+        isNewAccount,
         authenticate,
         setTeam,
         addWorkspace,

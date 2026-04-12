@@ -4,9 +4,21 @@ import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useAuth } from "@/lib/AuthContext";
 
 export function WalletButton() {
-  const { isAuthenticated, authenticate, isConnected } = useAuth();
+  const { isAuthenticated, authenticate, isConnected, isAuthenticating } = useAuth();
 
-  // If connected but not authenticated (e.g. token expired) show a re-auth button
+  if (isConnected && isAuthenticating) {
+    return (
+      <button
+        disabled
+        className="flex items-center gap-2 rounded-lg h-10 px-4 text-sm font-medium"
+        style={{ background: "rgba(124,69,255,0.3)", color: "rgba(255,255,255,0.5)", cursor: "default" }}
+      >
+        <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+        Signing in…
+      </button>
+    );
+  }
+
   if (isConnected && !isAuthenticated) {
     return (
       <button

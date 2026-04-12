@@ -2,11 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/lib/AuthContext";
 
 type SidebarMode = "user" | "provider";
-
-const ACCENT = "#7c45ff";
-const ACCENT_BG = "rgba(124,69,255,0.1)";
 
 function IconDashboard() {
   return (
@@ -131,6 +129,7 @@ const PROVIDER_NAV = [
 
 export function Sidebar({ mode }: { mode: SidebarMode }) {
   const pathname = usePathname();
+  const { address, isAuthenticated, teamName, logout } = useAuth();
   const navItems = mode === "user" ? USER_NAV : PROVIDER_NAV;
 
   function isActive(href: string) {
@@ -138,62 +137,108 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
     return pathname.startsWith(href);
   }
 
+  const shortAddr = address
+    ? `${address.slice(0, 6)}…${address.slice(-4)}`
+    : null;
+
   return (
-    <aside className="flex-shrink-0 w-64 flex flex-col justify-between p-4" style={{ background: "#101012" }}>
-      <div className="flex flex-col gap-4">
-        {/* Logo */}
-        <div className="flex items-center gap-2 px-2 py-2">
-          <span
-            className="text-base font-semibold tracking-tight text-white select-none"
-            style={{ letterSpacing: "-0.01em" }}
-          >
-            COMPUT<span style={{ display: "inline-block", transform: "scaleX(-1)" }}>E</span>
+    <aside
+      className="flex-shrink-0 w-[220px] flex flex-col"
+      style={{
+        background: "#0a0a0b",
+        borderRight: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      {/* Logo */}
+      <div className="px-5 pt-5 pb-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div className="flex items-baseline gap-2">
+          <span className="text-sm font-bold tracking-widest text-white select-none uppercase">
+            COMPUT3
           </span>
-          <span className="text-xs leading-tight ml-1" style={{ color: "#6B7280" }}>
-            {mode === "provider" ? "/ provider" : "/ app"}
+          <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "#5b5b6b" }}>
+            {mode === "provider" ? "provider" : "app"}
           </span>
         </div>
-
-        {/* Nav */}
-        <nav className="flex flex-col gap-1 mt-1">
-          {navItems.map(({ label, icon, href }) => {
-            const active = isActive(href);
-            return (
-              <Link
-                key={label}
-                href={href}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                style={{
-                  color: active ? ACCENT : "#9CA3AF",
-                  background: active ? ACCENT_BG : "transparent",
-                  textDecoration: "none",
-                }}
-              >
-                {icon}
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <Link
-          href="#"
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-          style={{ color: "#9CA3AF", textDecoration: "none" }}
-        >
-          <IconSettings />
-          Settings
-        </Link>
+      {/* Nav */}
+      <nav className="flex flex-col gap-0.5 p-3 flex-1">
+        <p className="px-2 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#3f3f50" }}>
+          {mode === "provider" ? "Provider" : "Workspace"}
+        </p>
+        {navItems.map(({ label, icon, href }) => {
+          const active = isActive(href);
+          return (
+            <Link
+              key={label}
+              href={href}
+              className="flex items-center gap-3 px-3 py-2 text-[13px] font-medium transition-all rounded-md"
+              style={{
+                color: active ? "#fff" : "#5a5a6e",
+                background: active ? "rgba(124,69,255,0.12)" : "transparent",
+                borderLeft: active ? "2px solid #7c45ff" : "2px solid transparent",
+                textDecoration: "none",
+              }}
+            >
+              <span style={{ color: active ? "#7c45ff" : "#3f3f50" }}>{icon}</span>
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Bottom section */}
+      <div className="p-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+        {/* Switch mode */}
         <Link
           href={mode === "user" ? "/provider" : "/"}
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-          style={{ color: ACCENT, background: ACCENT_BG, textDecoration: "none", marginTop: "4px" }}
+          className="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-all"
+          style={{ color: "#5a5a6e", textDecoration: "none" }}
         >
           <IconSwitch />
-          {mode === "user" ? "Switch to Provider" : "Switch to User"}
+          {mode === "user" ? "Provider Mode" : "User Mode"}
         </Link>
+
+        {/* Wallet identity */}
+        {isAuthenticated && shortAddr && (
+          <div
+            className="mt-2 rounded-md p-3 flex items-center gap-3"
+            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            {/* Avatar from address */}
+            <div
+              className="flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold"
+              style={{
+                width: 30,
+                height: 30,
+                background: `hsl(${parseInt(address?.slice(2, 4) ?? "0", 16) * 1.4}, 60%, 38%)`,
+                color: "#fff",
+              }}
+            >
+              {address?.slice(2, 4).toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-white truncate leading-tight">
+                {teamName?.startsWith("account-") ? shortAddr : (teamName ?? shortAddr)}
+              </p>
+              <p className="text-[10px] leading-tight mt-0.5 truncate" style={{ color: "#5a5a6e" }}>
+                {shortAddr}
+              </p>
+            </div>
+            <button
+              onClick={logout}
+              title="Sign out"
+              className="flex-shrink-0 transition-opacity hover:opacity-100 opacity-40"
+              style={{ color: "#fff" }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );

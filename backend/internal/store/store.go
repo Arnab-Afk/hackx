@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,6 +13,7 @@ import (
 type Team struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
+	Wallet    string    `json:"wallet"`
 	PublicKey string    `json:"public_key"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -194,6 +196,8 @@ func (s *Store) Migrate(ctx context.Context) error {
 	}
 	// Idempotent column additions for older deployments
 	_, _ = s.pool.Exec(ctx, `ALTER TABLE attestations ADD COLUMN IF NOT EXISTS attestation_uid TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.pool.Exec(ctx, `ALTER TABLE teams ADD COLUMN IF NOT EXISTS wallet TEXT NOT NULL DEFAULT ''`)
+	_, _ = s.pool.Exec(ctx, `CREATE UNIQUE INDEX IF NOT EXISTS teams_wallet_idx ON teams(wallet) WHERE wallet != ''`)
 	return nil
 }
 
@@ -201,16 +205,16 @@ func (s *Store) Migrate(ctx context.Context) error {
 
 func (s *Store) CreateTeam(ctx context.Context, t *Team) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO teams (id, name, public_key, created_at) VALUES ($1, $2, $3, $4)`,
-		t.ID, t.Name, t.PublicKey, t.CreatedAt)
+		`INSERT INTO teams (id, name, wallet, public_key, created_at) VALUES ($1, $2, $3, $4, $5)`,
+		t.ID, t.Name, t.Wallet, t.PublicKey, t.CreatedAt)
 	return err
 }
 
 func (s *Store) GetTeam(ctx context.Context, id string) (*Team, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, public_key, created_at FROM teams WHERE id = $1`, id)
+		`SELECT id, name, COALESCE(wallet,''), public_key, created_at FROM teams WHERE id = $1`, id)
 	var t Team
-	if err := row.Scan(&t.ID, &t.Name, &t.PublicKey, &t.CreatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.Name, &t.Wallet, &t.PublicKey, &t.CreatedAt); err != nil {
 		return nil, err
 	}
 	return &t, nil
@@ -218,10 +222,51 @@ func (s *Store) GetTeam(ctx context.Context, id string) (*Team, error) {
 
 func (s *Store) GetTeamByName(ctx context.Context, name string) (*Team, error) {
 	row := s.pool.QueryRow(ctx,
-		`SELECT id, name, public_key, created_at FROM teams WHERE name = $1`, name)
+		`SELECT id, name, COALESCE(wallet,''), public_key, created_at FROM teams WHERE name = $1`, name)
 	var t Team
-	if err := row.Scan(&t.ID, &t.Name, &t.PublicKey, &t.CreatedAt); err != nil {
+	if err := row.Scan(&t.ID, &t.Name, &t.Wallet, &t.PublicKey, &t.CreatedAt); err != nil {
 		return nil, err
+	}
+	return &t, nil
+}
+
+func (s *Store) UpdateTeamName(ctx context.Context, id, name string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE teams SET name=$1 WHERE id=$2`, name, id)
+	return err
+}
+
+// GetOrCreateTeamByWallet finds the team owned by this wallet address, creating one if it doesn't exist.
+func (s *Store) GetOrCreateTeamByWallet(ctx context.Context, wallet string) (*Team, error) {
+	wall := strings.ToLower(wallet)
+	row := s.pool.QueryRow(ctx,
+		`SELECT id, name, COALESCE(wallet,''), public_key, created_at FROM teams WHERE wallet = $1`, wall)
+	var t Team
+	err := row.Scan(&t.ID, &t.Name, &t.Wallet, &t.PublicKey, &t.CreatedAt)
+	if err == nil {
+		return &t, nil
+	}
+	// Not found — create a new team for this wallet
+	now := time.Now().UTC()
+	t = Team{
+		ID:        "team-" + wall[2:10], // deterministic prefix
+		Name:      "account-" + wall[2:10],
+		Wallet:    wall,
+		PublicKey: "",
+		CreatedAt: now,
+	}
+	// Use ON CONFLICT to handle race conditions
+	_, err = s.pool.Exec(ctx,
+		`INSERT INTO teams (id, name, wallet, public_key, created_at) VALUES ($1,$2,$3,$4,$5)
+		 ON CONFLICT (wallet) WHERE wallet != '' DO NOTHING`,
+		t.ID, t.Name, t.Wallet, t.PublicKey, t.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	// Re-fetch (in case another request won the race)
+	row = s.pool.QueryRow(ctx,
+		`SELECT id, name, COALESCE(wallet,''), public_key, created_at FROM teams WHERE wallet = $1`, wall)
+	if err2 := row.Scan(&t.ID, &t.Name, &t.Wallet, &t.PublicKey, &t.CreatedAt); err2 != nil {
+		return nil, err2
 	}
 	return &t, nil
 }
