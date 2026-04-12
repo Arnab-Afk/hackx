@@ -3,12 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { WalletButton } from "@/components/WalletButton";
-import { useAccount, useBalance } from "wagmi";
+import { useBalance } from "wagmi";
 import { baseSepolia } from "viem/chains";
 import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+import { useAuth } from "@/lib/AuthContext";
 
 type Container = {
   id: string;
@@ -28,8 +27,8 @@ type SessionSummary = {
 };
 
 export default function Home() {
-  const { address, isConnected } = useAccount();
-  const { data: balance } = useBalance({ address, chainId: baseSepolia.id });
+  const { address, isConnected, teamId } = useAuth();
+  const { data: balance } = useBalance({ address: address as `0x${string}` | undefined, chainId: baseSepolia.id });
 
   const [containers, setContainers] = useState<Container[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -37,7 +36,6 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"containers" | "sessions" | "audit">("containers");
 
   useEffect(() => {
-    const teamId = localStorage.getItem("zkloud_team_id");
     if (!teamId) return;
 
     setLoadingContainers(true);
@@ -51,7 +49,7 @@ export default function Home() {
       .then((r) => (r.ok ? r.json() : []))
       .then((s) => { if (Array.isArray(s)) setSessions(s); })
       .catch(() => {});
-  }, []);
+  }, [teamId]);
 
   const running = containers.filter((c) => c.status === "running").length;
   const stopped = containers.length - running;

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 const ACCENT = "#7c45ff";
 
@@ -31,12 +32,12 @@ const STATUS_COLORS = {
 };
 
 export default function ProviderOverviewPage() {
+  const { teamId } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [provider, setProvider] = useState<Provider | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const teamId = localStorage.getItem("zkloud_team_id");
     if (teamId) {
       apiFetch(`/teams/${teamId}/sessions`)
         .then((r) => (r.ok ? r.json() : []))
@@ -51,7 +52,7 @@ export default function ProviderOverviewPage() {
       .then((r) => (r.ok ? r.json() : []))
       .then((data: Provider[]) => { if (Array.isArray(data) && data.length > 0) setProvider(data[0]); })
       .catch(() => {});
-  }, []);
+  }, [teamId]);
 
   const activeCount = sessions.filter((s) => s.state === "running").length;
   const completedCount = sessions.filter((s) => s.state === "completed").length;

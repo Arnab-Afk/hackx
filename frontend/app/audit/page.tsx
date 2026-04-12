@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 const ACCENT = "#7c45ff";
 
@@ -26,6 +27,7 @@ type Action = { tool: string; hash: string; input?: unknown; result?: unknown };
 type ActionLog = { session_id: string; actions: Action[]; merkle_root?: string };
 
 export default function AuditPage() {
+  const { teamId } = useAuth();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionFilter, setSessionFilter] = useState<string>("all");
   const [log, setLog] = useState<ActionLog | null>(null);
@@ -33,7 +35,6 @@ export default function AuditPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    const teamId = localStorage.getItem("zkloud_team_id");
     if (!teamId) return;
     apiFetch(`/teams/${teamId}/sessions`)
       .then((r) => (r.ok ? r.json() : []))
@@ -44,7 +45,7 @@ export default function AuditPage() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [teamId]);
 
   useEffect(() => {
     if (!sessionFilter || sessionFilter === "all") { setLog(null); return; }

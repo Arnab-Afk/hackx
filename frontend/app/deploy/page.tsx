@@ -4,9 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
-import { useAccount } from "wagmi";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
+import { useAuth } from "@/lib/AuthContext";
+import { API } from "@/lib/api";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -103,7 +102,7 @@ type Phase = "repo" | "repos" | "scanning" | "pick" | "vm" | "deploying" | "done
 
 export default function DeployPage() {
   const router = useRouter();
-  const { address } = useAccount();
+  const { address, teamId, setTeam, addWorkspace } = useAuth();
 
   const [phase, setPhase] = useState<Phase>("repo");
   const [errMsg, setErrMsg] = useState("");
@@ -174,8 +173,8 @@ export default function DeployPage() {
     setErrMsg("");
 
     // Get or create team
-    let teamId = localStorage.getItem("zkloud_team_id");
-    if (!teamId) {
+    let tid = teamId;
+    if (!tid) {
       const name = "team-" + Math.random().toString(36).slice(2, 9);
       const res = await fetch(`${API}/teams`, {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -183,9 +182,8 @@ export default function DeployPage() {
       });
       if (!res.ok) { setPhase("error"); setErrMsg("Could not create team"); return; }
       const t = await res.json();
-      localStorage.setItem("zkloud_team_id", t.id);
-      localStorage.setItem("zkloud_team_name", t.name);
-      teamId = t.id;
+      setTeam(t.id, t.name);
+      tid = t.id;
     }
 
     try {
@@ -193,7 +191,7 @@ export default function DeployPage() {
       const wsRes = await fetch(`${API}/workspaces`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          team_id: teamId,
+          team_id: tid,
           ram_mb: RAM_MB[ram] ?? 2048,
           cpu_cores: CPU_CORES[cpu] ?? 2,
           session_id: sessionId || undefined,
@@ -227,9 +225,8 @@ export default function DeployPage() {
       setDeployResult(dep);
       setPhase("done");
 
-      // Save to local history
-      const hist: string[] = JSON.parse(localStorage.getItem("zkloud_workspaces") ?? "[]");
-      localStorage.setItem("zkloud_workspaces", JSON.stringify([ws.container_id, ...hist].slice(0, 20)));
+      // Save to workspace history via context
+      addWorkspace(ws.container_id);
     } catch (e) {
       setPhase("error");
       setErrMsg(String(e));

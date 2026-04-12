@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 const ACCENT = "#7c45ff";
 
@@ -17,12 +18,12 @@ type AttestationRow = {
 };
 
 export default function AttestationsPage() {
+  const { teamId } = useAuth();
   const [rows, setRows] = useState<AttestationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [schemaUID, setSchemaUID] = useState("—");
 
   useEffect(() => {
-    const teamId = localStorage.getItem("zkloud_team_id");
     if (!teamId) { setLoading(false); return; }
     apiFetch(`/teams/${teamId}/attestations`)
       .then((r) => (r.ok ? r.json() : []))
@@ -32,7 +33,7 @@ export default function AttestationsPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [teamId]);
 
   return (
     <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>

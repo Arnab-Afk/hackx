@@ -1,14 +1,16 @@
+import { STORAGE } from "@/lib/AuthContext";
+
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 export const WS_API = API.replace(/^http/, "ws");
 
 export function getToken(): string {
   if (typeof window === "undefined") return "";
-  return localStorage.getItem("comput3_jwt") ?? "";
+  return localStorage.getItem(STORAGE.JWT) ?? "";
 }
 
 export function getWallet(): string {
   if (typeof window === "undefined") return "";
-  return localStorage.getItem("comput3_wallet") ?? "";
+  return localStorage.getItem(STORAGE.WALLET) ?? "";
 }
 
 export function authHeaders(): Record<string, string> {
