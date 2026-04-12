@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -49,6 +51,7 @@ type CreateOpts struct {
 	RAMMb    int64
 	CPUCores float64
 	Ports    []string // e.g. ["3000/tcp", "8080/tcp"]
+	VaultKey string   // hex AES-256 key for LUKS /app encryption; random if empty
 }
 
 type ContainerInfo struct {
@@ -64,11 +67,13 @@ type HealthStatus struct {
 }
 
 type Manager struct {
-	client    *dockerclient.Client
-	wsMu      sync.RWMutex
-	wsReg     map[string]*WorkspaceInfo // containerID (short or full) → info
-	deployMu  sync.RWMutex
-	deployReg map[string]map[string]string // containerID → (containerPort/proto → hostPort)
+	client         *dockerclient.Client
+	wsMu           sync.RWMutex
+	wsReg          map[string]*WorkspaceInfo // containerID (short or full) → info
+	deployMu       sync.RWMutex
+	deployReg      map[string]map[string]string // containerID → (containerPort/proto → hostPort)
+	storageMu      sync.RWMutex
+	storageReg     map[string]string // containerID → storageDir (for LUKS teardown)
 }
 
 func NewManager(host string) (*Manager, error) {
@@ -87,9 +92,10 @@ func NewManager(host string) (*Manager, error) {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
 	return &Manager{
-		client:    cli,
-		wsReg:     make(map[string]*WorkspaceInfo),
-		deployReg: make(map[string]map[string]string),
+		client:     cli,
+		wsReg:      make(map[string]*WorkspaceInfo),
+		deployReg:  make(map[string]map[string]string),
+		storageReg: make(map[string]string),
 	}, nil
 }
 
@@ -140,6 +146,8 @@ func (m *Manager) LookupDeployPort(containerID string) (string, bool) {
 }
 
 // CreateContainer pulls the image if needed and starts a container for the team.
+// The container's /app directory is backed by a LUKS-encrypted volume on the host,
+// so all cloned source code and build artefacts are AES-256 encrypted at rest.
 func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*ContainerInfo, error) {
 	pullResp, err := m.client.ImagePull(ctx, opts.Image, dockerclient.ImagePullOptions{})
 	if err != nil {
@@ -173,6 +181,24 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 		hostPortMap[port.String()] = hostPort
 	}
 
+	// Set up an encrypted LUKS volume for /app (the cloned repo + build artefacts).
+	// A unique storage dir is created so each container has its own isolated vault.
+	storageDir := fmt.Sprintf("/vm-storage/containers/%s-%s-%s", opts.TeamID, opts.Name, randomHex(6))
+	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create container storage dir: %w", err)
+	}
+	appPath, luksErr := setupLUKSHome(storageDir, opts.VaultKey)
+	if luksErr != nil {
+		log.Printf("[container] LUKS setup failed (%v) — falling back to unencrypted /app", luksErr)
+		appPath = storageDir + "/app"
+		if err := os.MkdirAll(appPath, 0o755); err != nil {
+			return nil, fmt.Errorf("mkdir fallback app dir: %w", err)
+		}
+	}
+
+	// Bind list: encrypted /app volume.
+	binds := []string{appPath + ":/app"}
+
 	containerName := fmt.Sprintf("zkloud-%s-%s", opts.TeamID, opts.Name)
 
 	resp, err := m.client.ContainerCreate(ctx, dockerclient.ContainerCreateOptions{
@@ -184,12 +210,14 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 			// The actual application is started later via start_process.
 			Cmd: []string{"sh", "-c", "tail -f /dev/null"},
 			Labels: map[string]string{
-				"zkloud.team": opts.TeamID,
-				"zkloud.name": opts.Name,
+				"zkloud.team":      opts.TeamID,
+				"zkloud.name":      opts.Name,
+				"zkloud.encrypted": fmt.Sprintf("%v", luksErr == nil),
 			},
 		},
 		HostConfig: &container.HostConfig{
 			PortBindings: portBindings,
+			Binds:        binds,
 			Resources: container.Resources{
 				Memory:   opts.RAMMb * 1024 * 1024,
 				NanoCPUs: int64(opts.CPUCores * 1e9),
@@ -228,8 +256,17 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 		}
 	}
 
+	shortID := resp.ID[:12]
+
+	// Register storageDir so Destroy can tear down the LUKS volume.
+	m.storageMu.Lock()
+	m.storageReg[shortID] = storageDir
+	m.storageMu.Unlock()
+
+	log.Printf("[container] created %s encrypted=%v storageDir=%s", shortID, luksErr == nil, storageDir)
+
 	return &ContainerInfo{
-		ID:     resp.ID[:12],
+		ID:     shortID,
 		Name:   opts.Name,
 		Status: "running",
 		Ports:  ports,
@@ -393,8 +430,25 @@ func (m *Manager) Destroy(ctx context.Context, containerID string) error {
 	if _, err := m.client.ContainerStop(ctx, containerID, dockerclient.ContainerStopOptions{Timeout: &timeout}); err != nil {
 		return fmt.Errorf("stop container: %w", err)
 	}
-	_, err := m.client.ContainerRemove(ctx, containerID, dockerclient.ContainerRemoveOptions{Force: true})
-	return err
+	if _, err := m.client.ContainerRemove(ctx, containerID, dockerclient.ContainerRemoveOptions{Force: true}); err != nil {
+		return err
+	}
+
+	// Tear down the LUKS-encrypted /app volume and remove storage dir.
+	m.storageMu.Lock()
+	storageDir, ok := m.storageReg[containerID]
+	if ok {
+		delete(m.storageReg, containerID)
+	}
+	m.storageMu.Unlock()
+
+	if ok {
+		teardownLUKSHome(storageDir)
+		if err := os.RemoveAll(storageDir); err != nil {
+			log.Printf("[container] cleanup storageDir %s: %v", storageDir, err)
+		}
+	}
+	return nil
 }
 
 // ListTeamContainers returns all containers for a given team.
