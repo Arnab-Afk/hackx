@@ -63,6 +63,7 @@ type Session struct {
 	rpcURL          string // Base Sepolia RPC URL
 	registryAddress string // ProviderRegistry contract address
 	confirmCh       chan struct{} // closed by Confirm() to unblock plan step
+	githubToken     string        // optional — for private repo access
 }
 
 // anthropic API types (minimal)
@@ -101,7 +102,7 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model, rpcURL, registryAddress string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model, rpcURL, registryAddress, githubToken string) *Session {
 	if model == "" {
 		model = "claude-3-5-haiku-20241022"
 	}
@@ -118,6 +119,7 @@ func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, 
 		rpcURL:          rpcURL,
 		registryAddress: registryAddress,
 		confirmCh:       make(chan struct{}),
+		githubToken:     githubToken,
 	}
 }
 
@@ -262,7 +264,7 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 			return nil, fmt.Errorf("github_url is required")
 		}
 		s.emit(Event{Type: "message", Message: fmt.Sprintf("Scanning repository: %s", url)})
-		plan, err := s.scanner.AnalyzeRepo(ctx, url)
+		plan, err := s.scanner.AnalyzeRepo(ctx, url, s.githubToken)
 		if err != nil {
 			return nil, err
 		}
@@ -366,8 +368,14 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 		id := stringField(input, "container_id")
 		url := stringField(input, "github_url")
 		dir := stringField(input, "directory")
+		// Inject GitHub token for private repos
+		cloneURL := url
+		if s.githubToken != "" && strings.Contains(url, "github.com") {
+			cloneURL = strings.Replace(url, "https://github.com/",
+				fmt.Sprintf("https://x-access-token:%s@github.com/", s.githubToken), 1)
+		}
 		s.emit(Event{Type: "message", Message: fmt.Sprintf("Cloning %s into container %s ...", url, id)})
-		out, err := s.mgr.CloneRepo(ctx, id, url, dir)
+		out, err := s.mgr.CloneRepo(ctx, id, cloneURL, dir)
 		return map[string]string{"output": out}, err
 
 	case "run_command":

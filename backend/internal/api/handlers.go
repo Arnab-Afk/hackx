@@ -271,9 +271,10 @@ func (s *Server) listContainers(w http.ResponseWriter, r *http.Request) {
 // POST /sessions
 func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		TeamID  string `json:"team_id"`
-		Prompt  string `json:"prompt"`
-		RepoURL string `json:"repo_url"` // optional GitHub URL
+		TeamID      string `json:"team_id"`
+		Prompt      string `json:"prompt"`
+		RepoURL     string `json:"repo_url"`     // optional GitHub URL
+		GitHubToken string `json:"github_token"` // optional explicit token
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TeamID == "" {
 		http.Error(w, "team_id is required", http.StatusBadRequest)
@@ -295,6 +296,15 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve GitHub token: explicit > wallet-linked OAuth token
+	githubToken := req.GitHubToken
+	if githubToken == "" {
+		wallet, _ := s.walletFromRequest(r)
+		if wallet != "" {
+			githubToken, _ = s.githubToken(strings.ToLower(wallet))
+		}
+	}
+
 	sess := &store.Session{
 		ID:        generateID("sess"),
 		TeamID:    req.TeamID,
@@ -309,7 +319,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run agent in background; client connects to /sessions/:id/stream to get events
-	go s.runAgentSession(sess.ID, sess.TeamID, req.Prompt, req.RepoURL)
+	go s.runAgentSession(sess.ID, sess.TeamID, req.Prompt, req.RepoURL, githubToken)
 
 	jsonResponse(w, http.StatusCreated, sess)
 }
@@ -580,7 +590,7 @@ func (s *Server) registerAttestation(w http.ResponseWriter, r *http.Request) {
 }
 
 // runAgentSession runs the agent and publishes events to the session bus.
-func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
+func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL, githubToken string) {
 	ctx := context.Background()
 
 	log.Printf("[session %s] starting — proxy=%s model=%s", sessionID, s.proxyURL, s.agentModel)
@@ -590,7 +600,7 @@ func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL string) {
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
 	}
 
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress)
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress, githubToken)
 
 	// Register so /confirm can reach this session
 	sessionRegistry.register(sessionID, agentSess)
@@ -740,7 +750,7 @@ func (s *Server) scanRepo(w http.ResponseWriter, r *http.Request) {
 
 	token := req.Token
 	if token == "" && req.Wallet != "" {
-		token, _ = s.githubToken(req.Wallet)
+		token, _ = s.githubToken(strings.ToLower(req.Wallet))
 	}
 
 	result, err := scanner.ScanRepo(r.Context(), req.RepoURL, token)
@@ -771,7 +781,7 @@ func (s *Server) deployToWorkspace(w http.ResponseWriter, r *http.Request) {
 
 	token := req.Token
 	if token == "" && req.Wallet != "" {
-		token, _ = s.githubToken(req.Wallet)
+		token, _ = s.githubToken(strings.ToLower(req.Wallet))
 	}
 
 	// Re-scan to get the deploy options.
