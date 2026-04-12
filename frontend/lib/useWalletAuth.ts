@@ -11,6 +11,8 @@ export function useWalletAuth() {
 
   const authenticate = useCallback(async () => {
     if (!address) return;
+    // Mark wallet as seen immediately so we don't re-prompt on next render
+    localStorage.setItem("comput3_wallet", address.toLowerCase());
     try {
       // Request a nonce from the backend
       const nonceRes = await fetch(`${API}/auth/nonce`, {
@@ -34,7 +36,7 @@ export function useWalletAuth() {
       if (!verifyRes.ok) return;
       const { token } = await verifyRes.json();
       localStorage.setItem("comput3_jwt", token);
-      localStorage.setItem("comput3_wallet", address);
+      localStorage.setItem("comput3_wallet", address.toLowerCase());
     } catch {
       // Auth endpoint not available yet — no-op for demo
     }
@@ -42,8 +44,24 @@ export function useWalletAuth() {
 
   useEffect(() => {
     if (isConnected && address) {
-      const stored = localStorage.getItem("comput3_wallet");
-      if (stored !== address) {
+      const storedWallet = localStorage.getItem("comput3_wallet");
+      const storedToken = localStorage.getItem("comput3_jwt");
+
+      // Normalize address comparison (wagmi may return checksummed address)
+      const walletMatches = storedWallet?.toLowerCase() === address.toLowerCase();
+
+      // Check token isn't expired (JWT payload is base64url middle segment)
+      let tokenValid = false;
+      if (storedToken) {
+        try {
+          const payload = JSON.parse(atob(storedToken.split(".")[1] ?? ""));
+          tokenValid = payload.exp ? payload.exp * 1000 > Date.now() : true;
+        } catch {
+          tokenValid = false;
+        }
+      }
+
+      if (!walletMatches || !tokenValid) {
         authenticate();
       }
     }
