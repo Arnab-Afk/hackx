@@ -42,8 +42,8 @@ func Load() *Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable"),
 		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8082"),
-		ScanModel:   getEnv("SCAN_MODEL", "gemini-3-flash"),
-		AgentModel:  getEnv("AGENT_MODEL", "gemini-3-flash"),
+		ScanModel:   getEnv("SCAN_MODEL", "gemini-3.1-pro-low"),
+		AgentModel:  getEnv("AGENT_MODEL", "gemini-3.1-pro-low"),
 
 		BaseSepolia_RPC_URL:     getEnv("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
 		ProviderRegistryAddress: getEnv("PROVIDER_REGISTRY_ADDRESS", "0x889a1EB1489626F39C84b880a67e5eeAE3dD6884"),

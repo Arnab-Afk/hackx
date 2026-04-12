@@ -53,7 +53,7 @@ func New(proxyURL, model string) *Scanner {
 		proxyURL = "http://localhost:8080"
 	}
 	if model == "" {
-		model = "gemini-3.1-pro-high"
+		model = "gemini-3.1-pro-low"
 	}
 	return &Scanner{proxyURL: proxyURL, model: model}
 }

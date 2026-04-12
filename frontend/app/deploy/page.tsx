@@ -146,8 +146,13 @@ export default function DeployPage() {
   const [plan, setPlan] = useState<PlanData | null>(null);
   const [appURL, setAppURL] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [wsStatus, setWsStatus] = useState<"connecting"|"connected"|"reconnecting"|"disconnected">("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
   const eventsEndRef = useRef<HTMLDivElement>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
+  const phaseRef = useRef<Phase>("repo");
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -183,8 +188,17 @@ export default function DeployPage() {
     eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [liveEvents]);
 
+  // Keep phaseRef in sync so WS callbacks always see current phase
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+
   // Cleanup WS on unmount
-  useEffect(() => { return () => { wsRef.current?.close(); }; }, []);
+  useEffect(() => {
+    return () => {
+      intentionalCloseRef.current = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      wsRef.current?.close();
+    };
+  }, []);
 
   // ── helpers ─────────────────────────────────────────────────────────────────
 
@@ -205,18 +219,46 @@ export default function DeployPage() {
     return t.id;
   }
 
+  function scheduleReconnect(sid: string) {
+    reconnectAttemptsRef.current += 1;
+    const delay = Math.min(2000 * Math.pow(2, reconnectAttemptsRef.current - 1), 30_000);
+    setWsStatus("reconnecting");
+    reconnectTimerRef.current = setTimeout(async () => {
+      if (intentionalCloseRef.current) return;
+      // Re-check session state — it may have completed while disconnected
+      try {
+        const res = await apiFetch(`/sessions/${sid}`);
+        if (!res.ok) { connectStream(sid); return; }
+        const sess = await res.json();
+        if (sess.state === "running") {
+          connectStream(sid);
+        } else if (sess.state === "completed") {
+          setPhase("done");
+          setWsStatus("disconnected");
+        } else {
+          setPhase("error");
+          setErrMsg("Session ended: " + sess.state);
+          setWsStatus("disconnected");
+        }
+      } catch {
+        connectStream(sid); // network error — just retry
+      }
+    }, delay);
+  }
+
   function connectStream(sid: string) {
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    setWsStatus("connecting");
     const ws = new WebSocket(`${WS_API}/sessions/${sid}/stream`);
     wsRef.current = ws;
 
+    ws.onopen = () => {
+      setWsStatus("connected");
+      reconnectAttemptsRef.current = 0;
+    };
+
     ws.onmessage = (e) => {
       try {
-        // Message shape from backend:
-        // { type: "plan",    plan: {...} }
-        // { type: "message", message: "..." }
-        // { type: "action",  action: {...} }
-        // { type: "done",    ... }
-        // { type: "error",   error: "..." }
         const evt = JSON.parse(e.data) as {
           type: string;
           plan?: PlanData;
@@ -224,10 +266,10 @@ export default function DeployPage() {
           action?: { tool: string; input: unknown; result: unknown; index: number };
           error?: string;
           container_id?: string;
+          deployed_url?: string;
           app_url?: string;
         };
 
-        // Normalise to a single `data` field for the event log
         const evtData =
           evt.type === "plan"    ? evt.plan :
           evt.type === "message" ? (evt.message ?? "") :
@@ -242,23 +284,27 @@ export default function DeployPage() {
           setPlan(evt.plan ?? null);
           setPhase("awaiting_confirm");
         } else if (evt.type === "done") {
-          if (evt.container_id) setAppURL(`https://${evt.container_id}.deploy.comput3.xyz`);
+          if (evt.deployed_url) setAppURL(evt.deployed_url);
+          else if (evt.container_id) setAppURL(`https://${evt.container_id}.deploy.comput3.xyz`);
           else if (evt.app_url) setAppURL(evt.app_url);
+          intentionalCloseRef.current = true;
+          ws.close();
+          setWsStatus("disconnected");
           setPhase("done");
-          ws.close();
         } else if (evt.type === "error") {
-          setErrMsg(typeof evt.error === "string" ? evt.error : JSON.stringify(evt.error) ?? "Deployment failed");
-          setPhase("error");
+          setErrMsg(typeof evt.error === "string" ? evt.error : "Deployment failed");
+          intentionalCloseRef.current = true;
           ws.close();
+          setWsStatus("disconnected");
+          setPhase("error");
         }
       } catch { /* non-JSON frame */ }
     };
 
-    ws.onerror = () => { setErrMsg("WebSocket connection lost"); setPhase("error"); };
-    ws.onclose = (e) => {
-      if (e.code !== 1000 && !["done","error"].includes(phase)) {
-        setErrMsg("Connection closed unexpectedly (code " + e.code + ")");
-        setPhase("error");
+    ws.onerror = () => { ws.close(); };
+    ws.onclose = () => {
+      if (!intentionalCloseRef.current && !["done","error"].includes(phaseRef.current)) {
+        scheduleReconnect(sid);
       }
     };
   }
@@ -277,6 +323,8 @@ export default function DeployPage() {
     setLiveEvents([]);
     setPlan(null);
     setAppURL("");
+    intentionalCloseRef.current = false;
+    reconnectAttemptsRef.current = 0;
 
     const teamId = await ensureTeam();
     if (!teamId) { setErrMsg("Could not create team. Please try again."); setPhase("error"); return; }
@@ -647,10 +695,20 @@ export default function DeployPage() {
                 <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 400 }}>
                   <div style={{ padding: "16px 20px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: phase === "awaiting_confirm" ? "#eab308" : ACCENT }} className="animate-pulse" />
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: wsStatus === "reconnecting" ? "#f97316" : phase === "awaiting_confirm" ? "#eab308" : ACCENT }} className="animate-pulse" />
                       <span style={{ fontSize: 14, fontWeight: 700, color: "#F9FAFB" }}>
                         {phase === "awaiting_confirm" ? "Plan Ready — Confirm to Proceed" : phase === "building" ? "Building Deployment…" : "Agent Running"}
                       </span>
+                      {wsStatus === "reconnecting" && (
+                        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, background: "#431407", color: "#fb923c", border: "1px solid #7c2d12" }}>
+                          ↻ reconnecting… (attempt {reconnectAttemptsRef.current})
+                        </span>
+                      )}
+                      {wsStatus === "connecting" && (
+                        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 99, background: "#1c1917", color: "#a8a29e", border: "1px solid #292524" }}>
+                          ◌ connecting…
+                        </span>
+                      )}
                     </div>
                     <Link href={`/sessions/${sessionId}`} style={{ fontSize: 11, color: "#6B7280", textDecoration: "none" }}>View full session →</Link>
                   </div>
