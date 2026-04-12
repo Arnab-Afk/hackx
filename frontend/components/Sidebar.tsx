@@ -153,9 +153,6 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
       {/* Logo */}
       <div className="px-5 pt-6 pb-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "#e2f0d9" }}>
-            <div className="w-4 h-4 rounded-full" style={{ background: "#111111", opacity: 0.8 }} />
-          </div>
           <div className="flex flex-col">
             <span className="text-xs font-semibold tracking-widest text-white select-none uppercase leading-none">
               COMPUT3
