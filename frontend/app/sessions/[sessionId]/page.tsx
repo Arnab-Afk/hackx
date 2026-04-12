@@ -1,13 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Sidebar } from "@/components/Sidebar";
 import { use } from "react";
-import { MOCK_SESSIONS, MOCK_ACTION_LOG } from "@/lib/mockData";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
-const WS_API = API.replace(/^http/, "ws");
+import { apiFetch } from "@/lib/api";
+import { Sidebar } from "@/components/Sidebar";
 
 type SessionData = {
   id: string;
@@ -47,10 +44,6 @@ const toolIcons: Record<string, string> = {
   health_check: "💚",
   get_logs: "📜",
   destroy_container: "🗑️",
-  clone_repo: "📥",
-  run_command: "▶️",
-  start_process: "🚀",
-  write_file: "✏️",
 };
 
 const toolColors: Record<string, string> = {
@@ -64,10 +57,6 @@ const toolColors: Record<string, string> = {
   health_check: "#22c55e",
   get_logs: "#6b7280",
   destroy_container: "#ef4444",
-  clone_repo: "#60a5fa",
-  run_command: "#34d399",
-  start_process: "#f472b6",
-  write_file: "#fbbf24",
 };
 
 function formatTime(iso: string) {
@@ -89,19 +78,16 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [copied, setCopied] = useState<number | null>(null);
-  const [liveMessages, setLiveMessages] = useState<string[]>([]);
-  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     async function load() {
       try {
         const [sessRes, logRes] = await Promise.all([
-          fetch(`${API}/sessions/${sessionId}`),
-          fetch(`${API}/sessions/${sessionId}/log`),
+          apiFetch(`/sessions/${sessionId}`),
+          apiFetch(`/sessions/${sessionId}/log`),
         ]);
-        if (!sessRes.ok) throw new Error("not found");
-        const sessData: SessionData = await sessRes.json();
-        setSession(sessData);
+        if (!sessRes.ok) throw new Error(await sessRes.text());
+        setSession(await sessRes.json());
         if (logRes.ok) {
           const rawLog = await logRes.json();
           setLog({
@@ -109,85 +95,14 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
           });
         }
-
-        // If the session is still running, open a WebSocket to stream live events
-        if (sessData.state === "running") {
-          openStream(sessionId);
-        }
-      } catch {
-        // Fall back to mock data so the page is always visible
-        const mock = MOCK_SESSIONS.find((s) => s.id === sessionId) ?? { ...MOCK_SESSIONS[0], id: sessionId };
-        setSession(mock as SessionData);
-        setLog({ ...MOCK_ACTION_LOG, session_id: sessionId });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load session");
       } finally {
         setLoading(false);
       }
     }
     load();
-
-    return () => {
-      wsRef.current?.close();
-    };
   }, [sessionId]);
-
-  function openStream(id: string) {
-    const ws = new WebSocket(`${WS_API}/sessions/${id}/stream`);
-    wsRef.current = ws;
-
-    ws.onmessage = (ev) => {
-      try {
-        const event = JSON.parse(ev.data as string);
-        switch (event.type) {
-          case "action":
-            if (event.action) {
-              setLog((prev) => {
-                const existing = prev?.actions ?? [];
-                // Avoid duplicates (server may replay on reconnect)
-                const alreadyHas = existing.some((a) => a.index === event.action.index);
-                if (alreadyHas) return prev;
-                return {
-                  ...(prev ?? { id: 0, session_id: id, team_id: "", created_at: "" }),
-                  actions: [...existing, event.action],
-                };
-              });
-            }
-            break;
-          case "message":
-            if (event.message) {
-              setLiveMessages((m) => [...m, event.message]);
-            }
-            break;
-          case "done":
-            setSession((s) => s ? { ...s, state: "completed" } : s);
-            if (event.log) {
-              try {
-                const rawActions = typeof event.log === "string" ? JSON.parse(event.log) : event.log;
-                const actions: ActionItem[] = Array.isArray(rawActions) ? rawActions : rawActions?.actions ?? [];
-                setLog((prev) => ({
-                  ...(prev ?? { id: 0, session_id: id, team_id: "", created_at: "" }),
-                  actions,
-                }));
-              } catch {
-                // ignore parse errors
-              }
-            }
-            ws.close();
-            break;
-          case "error":
-            setSession((s) => s ? { ...s, state: "failed" } : s);
-            if (event.message) setLiveMessages((m) => [...m, `Error: ${event.message}`]);
-            ws.close();
-            break;
-        }
-      } catch {
-        // ignore non-JSON frames
-      }
-    };
-
-    ws.onerror = () => {
-      ws.close();
-    };
-  }
 
   function copyHash(hash: string, idx: number) {
     navigator.clipboard.writeText(hash);
@@ -202,7 +117,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0e0e0e", color: "#6b7280" }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#111111", color: "#6b7280" }}>
         <div className="flex items-center gap-3">
           <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24">
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -216,11 +131,11 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: "#0e0e0e", color: "#f87171" }}>
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#111111", color: "#f87171" }}>
         <div className="text-center">
           <p className="font-bold mb-2">Session not found</p>
           <p className="text-sm opacity-60 mb-4">{error}</p>
-          <Link href="/" className="text-sm underline" style={{ color: "#5c6e8c" }}>← Back to dashboard</Link>
+          <Link href="/" className="text-sm underline" style={{ color: "#e2f0d9" }}>← Back to dashboard</Link>
         </div>
       </div>
     );
@@ -230,17 +145,36 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const stateColor = session?.state === "completed" ? "#22c55e" : session?.state === "failed" ? "#ef4444" : "#eab308";
 
   return (
-    <div className="flex h-screen" style={{ background: "#0A0A0A", color: "#E5E7EB", fontFamily: "var(--font-inter), sans-serif" }}>
+    <div className="min-h-screen flex" style={{ background: "#111111", color: "#d1d5db", fontFamily: "var(--font-inter), sans-serif" }}>
       <Sidebar mode="user" />
-      <main className="flex-1 overflow-y-auto">
-      <div className="p-8">
-        <header className="flex items-center gap-4 mb-6">
-          <Link href="/" className="text-sm" style={{ color: "#6B7280", textDecoration: "none" }}>← Dashboard</Link>
-          <span style={{ color: "#4B5563" }}>/</span>
-          <span className="text-sm font-mono" style={{ color: "#9CA3AF" }}>Sessions</span>
-          <span style={{ color: "#4B5563" }}>/</span>
-          <span className="text-sm font-mono" style={{ color: "#F3F4F6" }}>{sessionId.slice(0, 20)}…</span>
-        </header>
+      <div className="flex-1">
+      {/* Nav */}
+      <header className="flex items-center justify-between px-6 py-4" style={{ borderBottom: "1px solid #1f2937" }}>
+        <div className="flex items-center gap-4">
+          <Link href="/" className="flex items-center gap-2 text-sm transition-opacity hover:opacity-70" style={{ color: "#6b7280" }}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m15 18-6-6 6-6" />
+            </svg>
+            Dashboard
+          </Link>
+          <span style={{ color: "#374151" }}>/</span>
+          <span className="text-sm" style={{ color: "#6b7280" }}>Sessions</span>
+          <span style={{ color: "#374151" }}>/</span>
+          <span className="text-sm font-semibold" style={{ color: "#f3f4f6", fontFamily: "var(--font-space-mono), monospace" }}>
+            {sessionId.slice(0, 20)}…
+          </span>
+        </div>
+        <Link
+          href="/deploy"
+          className="text-xs px-4 py-1.5 rounded-sm font-semibold transition-opacity hover:opacity-80"
+          style={{ background: "#e2f0d9", color: "#111111" }}
+        >
+          New Deploy
+        </Link>
+      </header>
+
+
+      <div className="max-w-5xl mx-auto px-6 py-10">
         {/* Session header */}
         <div className="rounded-sm p-6 mb-6" style={{ background: "#181818", border: "1px solid #1f2937" }}>
           <div className="flex items-start justify-between gap-4 mb-4">
@@ -290,35 +224,20 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             className="rounded-sm p-4 mb-6 flex items-center gap-3"
             style={{ background: "#181818", border: "1px solid #1f2937" }}
           >
+            <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#6b7280" }}>🔏</span>
             <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold uppercase tracking-widest mb-1" style={{ color: "#5c6e8c" }}>On-Chain Audit Root</div>
-              <div className="text-xs font-mono truncate" style={{ color: "#6b7280" }}>{computeMerkleRoot(actions)}</div>
+              <div className="text-xs font-semibold mb-0.5" style={{ color: "#5c6e8c" }}>On-Chain Audit Root</div>
+              <div className="text-xs font-mono truncate" style={{ color: "#4b5563" }}>{computeMerkleRoot(actions)}</div>
             </div>
             <a
               href={`https://base.easscan.org/`}
               target="_blank"
               rel="noreferrer"
-              className="text-xs px-3 py-1.5 rounded-sm shrink-0 transition-opacity hover:opacity-80"
+              className="text-xs px-3 py-1 rounded-sm shrink-0 transition-opacity hover:opacity-80"
               style={{ background: "#1f2937", color: "#5c6e8c" }}
             >
               Verify on EAS →
             </a>
-          </div>
-        )}
-
-        {/* Live agent messages */}
-        {liveMessages.length > 0 && (
-          <div className="rounded-sm p-4 mb-6" style={{ background: "#181818", border: "1px solid #1f2937" }}>
-            <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#5c6e8c" }}>
-              Agent Log
-            </div>
-            <div className="space-y-1">
-              {liveMessages.map((msg, i) => (
-                <p key={i} className="text-xs font-mono" style={{ color: msg.startsWith("Error:") ? "#f87171" : "#6b7280" }}>
-                  {msg}
-                </p>
-              ))}
-            </div>
           </div>
         )}
 
@@ -331,15 +250,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           {actions.length === 0 && (
             <div className="rounded-sm p-8 text-center" style={{ background: "#181818", border: "1px solid #1f2937" }}>
               <p className="text-sm" style={{ color: "#4b5563" }}>
-                {session?.state === "running" ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-                    </svg>
-                    Waiting for agent actions…
-                  </span>
-                ) : "No actions recorded."}
+                {session?.state === "running" ? "Session is still running…" : "No actions recorded."}
               </p>
             </div>
           )}
@@ -418,9 +329,9 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                           <div className="pt-3">
                             <div className="text-xs uppercase tracking-wider mb-1.5" style={{ color: "#4b5563" }}>Input</div>
                             <pre
-                              className="text-xs p-3 rounded-sm overflow-x-auto"
+                              className="text-xs p-3 rounded-lg overflow-x-auto"
                               style={{
-                                background: "#111111",
+                                background: "#0a0a0a",
                                 color: "#9ca3af",
                                 fontFamily: "var(--font-space-mono), monospace",
                                 lineHeight: 1.6,
@@ -437,10 +348,10 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                                 {hasError ? "Error" : "Result"}
                               </div>
                               <pre
-                                className="text-xs p-3 rounded-sm overflow-x-auto"
+                                className="text-xs p-3 rounded-lg overflow-x-auto"
                                 style={{
-                                  background: "#111111",
-                                  color: hasError ? "#f87171" : "#6b7280",
+                                  background: hasError ? "#1a0a0a" : "#0a0a0a",
+                                  color: hasError ? "#fca5a5" : "#6b7280",
                                   fontFamily: "var(--font-space-mono), monospace",
                                   lineHeight: 1.6,
                                 }}
@@ -460,7 +371,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                             </div>
                             <button
                               onClick={() => copyHash(action.hash, i)}
-                              className="text-xs px-2 py-1 rounded-sm transition-opacity hover:opacity-80"
+                              className="text-xs px-2 py-1 rounded-lg transition-opacity hover:opacity-80"
                               style={{ background: "#1f2937", color: "#6b7280" }}
                             >
                               {copied === i ? "Copied!" : "Copy"}
@@ -477,12 +388,12 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         </div>
 
         {/* Footer links */}
-        <div className="mt-10 pt-6 flex items-center justify-between" style={{ borderTop: "1px solid #2C2C2E" }}>
-          <Link href="/" className="text-xs hover:underline" style={{ color: "#4B5563" }}>← Dashboard</Link>
-          <Link href="/deploy" className="text-xs hover:underline" style={{ color: "#7c45ff" }}>Deploy Again →</Link>
+        <div className="mt-10 pt-6 flex items-center justify-between" style={{ borderTop: "1px solid #1f2937" }}>
+          <Link href="/" className="text-xs hover:underline" style={{ color: "#4b5563" }}>← Dashboard</Link>
+          <Link href="/deploy" className="text-xs hover:underline" style={{ color: "#e2f0d9" }}>Deploy Again →</Link>
         </div>
       </div>
-      </main>
+      </div>
     </div>
   );
 }

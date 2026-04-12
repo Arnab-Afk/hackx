@@ -4,9 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { Sidebar } from "@/components/Sidebar";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
-const WS_API = API.replace(/^http/, "ws");
+import { API, WS_API, apiFetch } from "@/lib/api";
 
 type WorkspaceStatus = {
   container_id: string;
@@ -27,7 +25,7 @@ export default function WorkspacePage() {
 
   // Fetch workspace status
   useEffect(() => {
-    fetch(`${API}/workspaces/${id}/status`)
+    apiFetch(`/workspaces/${id}/status`)
       .then((r) => r.ok ? r.json() : null)
       .then((d) => d && setStatus(d))
       .catch(() => null);
@@ -45,10 +43,10 @@ export default function WorkspacePage() {
 
       term = new Terminal({
         theme: {
-          background: "#0A0A0A",
+          background: "#111111",
           foreground: "#E5E7EB",
-          cursor: "#7c45ff",
-          selectionBackground: "rgba(124,69,255,0.3)",
+          cursor: "#e2f0d9",
+          selectionBackground: "rgba(226,240,217,0.3)",
         },
         fontFamily: "'Space Mono', 'Courier New', monospace",
         fontSize: 13,
@@ -157,7 +155,7 @@ export default function WorkspacePage() {
   const appHost = typeof window !== "undefined" ? window.location.hostname : "server";
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: "#0A0A0A", fontFamily: "Inter, sans-serif", color: "#E5E7EB" }}>
+    <div style={{ display: "flex", height: "100vh", background: "#111111", fontFamily: "Inter, sans-serif", color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -179,7 +177,7 @@ export default function WorkspacePage() {
                 href={`http://${appHost}:${appPort}`}
                 target="_blank"
                 rel="noreferrer"
-                style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, background: "rgba(124,69,255,0.1)", border: "1px solid rgba(124,69,255,0.3)", color: "#7c45ff", textDecoration: "none", fontWeight: 600 }}
+                style={{ fontSize: 12, padding: "6px 12px", borderRadius: 8, background: "rgba(226,240,217,0.1)", border: "1px solid rgba(226,240,217,0.3)", color: "#e2f0d9", textDecoration: "none", fontWeight: 600 }}
               >
                 Open App ↗
               </a>

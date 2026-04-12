@@ -5,8 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { useAccount } from "wagmi";
-
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8081";
+import { API, apiFetch } from "@/lib/api";
 
 const ACCENT = "#e2f0d9";
 const ACCENT_FG = "#111111";
@@ -155,7 +154,7 @@ export default function DeployPage() {
     setLoadingRepos(true);
     setPhase("repos");
     try {
-      const res = await fetch(`${API}/auth/github/repos?wallet=${encodeURIComponent(wallet)}`);
+      const res = await apiFetch(`/auth/github/repos?wallet=${encodeURIComponent(wallet)}`);
       if (!res.ok) throw new Error(await res.text());
       const data: GithubRepo[] = await res.json();
       setRepos(data);
@@ -183,8 +182,8 @@ export default function DeployPage() {
     let teamId = localStorage.getItem("zkloud_team_id");
     if (!teamId) {
       const name = "team-" + Math.random().toString(36).slice(2, 9);
-      const res = await fetch(`${API}/teams`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const res = await apiFetch(`/teams`, {
+        method: "POST",
         body: JSON.stringify({ name, public_key: "" }),
       });
       if (!res.ok) { setPhase("error"); setErrMsg("Could not create team"); return; }
@@ -196,8 +195,8 @@ export default function DeployPage() {
 
     try {
       // 1. Allocate encrypted workspace
-      const wsRes = await fetch(`${API}/workspaces`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const wsRes = await apiFetch(`/workspaces`, {
+        method: "POST",
         body: JSON.stringify({
           team_id: teamId,
           ram_mb: RAM_MB[ram] ?? 2048,
@@ -213,14 +212,14 @@ export default function DeployPage() {
       let ready = ws.status === "ready";
       for (let i = 0; i < 60 && !ready; i++) {
         await new Promise((r) => setTimeout(r, 3000));
-        const st = await fetch(`${API}/workspaces/${ws.container_id}/status`).then((r) => r.json());
+        const st = await apiFetch(`/workspaces/${ws.container_id}/status`).then((r) => r.json());
         if (st.status === "ready") ready = true;
       }
       if (!ready) throw new Error("Workspace timed out waiting to be ready");
 
       // 3. Deploy the repo into the workspace
-      const depRes = await fetch(`${API}/workspaces/${ws.container_id}/deploy`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+      const depRes = await apiFetch(`/workspaces/${ws.container_id}/deploy`, {
+        method: "POST",
         body: JSON.stringify({
           repo_url: scan.repo_url,
           option_index: selectedOption,
@@ -257,9 +256,8 @@ export default function DeployPage() {
     setPhase("scanning");
     setErrMsg("");
     try {
-      const res = await fetch(`${API}/repos/scan`, {
+      const res = await apiFetch(`/repos/scan`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: url, wallet: githubWallet || address || "" }),
       });
       const text = await res.text();
