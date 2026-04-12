@@ -1,1 +1,400 @@
-"use client";import { useEffect, useState } from "react";import Link from "next/link";import { WalletButton } from "@/components/WalletButton";import { useBalance } from "wagmi";import { baseSepolia } from "viem/chains";import { Sidebar } from "@/components/Sidebar";import { apiFetch } from "@/lib/api";import { useAuth } from "@/lib/AuthContext";type Container = {  id: string;  name: string;  image: string;  status: string;  ports: Record<string, string[]> | null;  created: string;};type SessionSummary = {  id: string;  prompt: string;  state: string;  created_at: string;  updated_at: string;};function useClock() {  const [time, setTime] = useState("");  useEffect(() => {    const fmt = () =>      new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", second: "2-digit" });    setTime(fmt());    const t = setInterval(() => setTime(fmt()), 1000);    return () => clearInterval(t);  }, []);  return time;}// Simple bar sparkline for activityfunction Sparkline({ bars }: { bars: number[] }) {  const max = Math.max(...bars, 1);  return (    <div className="flex items-end gap-[3px]" style={{ height: 32 }}>      {bars.map((v, i) => (        <div          key={i}          className="rounded-sm flex-1 transition-all"          style={{            height: `${Math.max(3, Math.round((v / max) * 100))}%`,            background: i === bars.length - 1 ? "#7c45ff" : "rgba(124,69,255,0.25)",          }}        />      ))}    </div>  );}export default function Home() {  const { address, isConnected, teamId, teamName, isNewAccount } = useAuth();  const { data: balance } = useBalance({ address: address as `0x${string}` | undefined, chainId: baseSepolia.id });  const clock = useClock();  const [containers, setContainers] = useState<Container[]>([]);  const [sessions, setSessions] = useState<SessionSummary[]>([]);  const [loadingContainers, setLoadingContainers] = useState(false);  const [activeTab, setActiveTab] = useState<"containers" | "sessions" | "audit">("containers");  useEffect(() => {    if (!teamId) return;    setLoadingContainers(true);    apiFetch(`/teams/${teamId}/containers`)      .then((r) => (r.ok ? r.json() : []))      .then((c) => { if (Array.isArray(c)) setContainers(c); })      .catch(() => {})      .finally(() => setLoadingContainers(false));    apiFetch(`/teams/${teamId}/sessions`)      .then((r) => (r.ok ? r.json() : []))      .then((s) => { if (Array.isArray(s)) setSessions(s); })      .catch(() => {});  }, [teamId]);  const running = containers.filter((c) => c.status === "running").length;  // Activity bars — last 7 "periods" worth of session counts (fake bucketing by index mod)  const activityBars = Array.from({ length: 7 }, (_, i) =>    sessions.filter((_, si) => si % 7 === i).length  );  return (    <div className="flex h-screen" style={{ background: "#08080a", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>      <Sidebar mode="user" />      <main className="flex-1 flex flex-col overflow-y-auto">        <div className="px-8 py-6 flex flex-col gap-6">          {/* Page header */}          <header className="flex flex-wrap justify-between items-center gap-4">            <div>              <p className="text-[11px] font-semibold uppercase tracking-widest mb-1" style={{ color: "#3f3f50" }}>                {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}              </p>              <p className="text-2xl font-bold tracking-tight" style={{ color: "#f0f0f5" }}>                {isNewAccount ? "Welcome" : (teamName && !teamName.startsWith("account-") ? teamName : "Dashboard")}              </p>            </div>            <div className="flex items-center gap-3">              <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", color: "#5a5a6e" }}>                <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />                {clock}              </div>              {isConnected && balance && (                <div className="px-3 py-1.5 rounded-md text-xs font-mono" style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)", color: "#5a5a6e" }}>                  {parseFloat(balance.formatted).toFixed(4)} ETH                </div>              )}              <WalletButton />              <Link                href="/deploy"                className="flex items-center gap-2 rounded-md px-4 py-2 text-sm font-bold"                style={{ background: "#7c45ff", color: "#fff" }}              >                Deploy                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">                  <line x1="5" y1="12" x2="19" y2="12"/>                  <polyline points="12 5 19 12 12 19"/>                </svg>              </Link>            </div>          </header>          {/* New account banner */}          {isNewAccount && (            <Link              href="/onboarding"              className="flex items-center justify-between rounded-md px-4 py-3"              style={{ background: "rgba(124,69,255,0.08)", border: "1px solid rgba(124,69,255,0.3)", textDecoration: "none" }}            >              <div className="flex items-center gap-3">                <div className="w-7 h-7 rounded flex items-center justify-center" style={{ background: "rgba(124,69,255,0.2)" }}>                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2.5">                    <circle cx="12" cy="12" r="10"/>                    <line x1="12" y1="8" x2="12" y2="12"/>                    <line x1="12" y1="16" x2="12.01" y2="16"/>                  </svg>                </div>                <div>                  <p className="text-sm font-semibold" style={{ color: "#f0f0f5" }}>Set up your account</p>                  <p className="text-xs" style={{ color: "#5a5a6e" }}>Add a display name to personalize your workspace.</p>                </div>              </div>              <span className="text-xs font-semibold" style={{ color: "#7c45ff" }}>Set up →</span>            </Link>          )}          {/* Stats row */}          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">            {/* Running containers */}            <div className="rounded-md p-4 flex flex-col gap-3" style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)" }}>              <div className="flex items-center justify-between">                <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#3f3f50" }}>Running</p>                <span className={`w-2 h-2 rounded-full ${running > 0 ? "bg-green-500" : "bg-neutral-700"}`} />              </div>              <p className="text-3xl font-bold" style={{ color: "#f0f0f5" }}>{running}</p>              <p className="text-xs" style={{ color: "#3f3f50" }}>{containers.length} total containers</p>            </div>            {/* Total sessions */}            <div className="rounded-md p-4 flex flex-col gap-3" style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)" }}>              <div className="flex items-center justify-between">                <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#3f3f50" }}>Deployments</p>                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3f3f50" strokeWidth="2">                  <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>                </svg>              </div>              <p className="text-3xl font-bold" style={{ color: "#f0f0f5" }}>{sessions.length}</p>              <p className="text-xs" style={{ color: "#3f3f50" }}>                {sessions.filter(s => s.state === "completed").length} completed              </p>            </div>            {/* Network */}            <div className="rounded-md p-4 flex flex-col gap-3" style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)" }}>              <div className="flex items-center justify-between">                <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#3f3f50" }}>Network</p>                <span className="w-2 h-2 rounded-full bg-green-500" />              </div>              <p className="text-3xl font-bold" style={{ color: "#f0f0f5" }}>Online</p>              <p className="text-xs" style={{ color: "#3f3f50" }}>Base Sepolia</p>            </div>            {/* Activity sparkline */}            <div className="rounded-md p-4 flex flex-col gap-3" style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)" }}>              <div className="flex items-center justify-between">                <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#3f3f50" }}>Activity</p>                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#3f3f50" strokeWidth="2">                  <rect x="3" y="3" width="18" height="18" rx="2"/>                  <polyline points="3 9 9 9 9 21"/>                  <polyline points="21 9 15 9 15 21"/>                </svg>              </div>              <Sparkline bars={activityBars.length ? activityBars : [0,0,0,0,0,0,0]} />              <p className="text-xs" style={{ color: "#3f3f50" }}>Deployment frequency</p>            </div>          </div>          {/* Main content grid */}          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">            {/* Pipeline stages */}            <div className="rounded-md p-4" style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)" }}>              <div className="flex items-center justify-between mb-4">                <p className="text-sm font-semibold" style={{ color: "#f0f0f5" }}>Recent Pipelines</p>                <Link href="/sessions" className="text-[11px] font-medium" style={{ color: "#7c45ff", textDecoration: "none" }}>                  View all →                </Link>              </div>              <div className="flex flex-col">                {sessions.slice(0, 6).map((s, i) => {                  const dotColor = s.state === "completed" ? "#22c55e" : s.state === "failed" ? "#ef4444" : "#7c45ff";                  return (                    <div key={s.id} className="flex items-start gap-3 py-2.5" style={{ borderBottom: i < 5 ? "1px solid rgba(255,255,255,0.04)" : "none" }}>                      <div className="mt-0.5 w-5 h-5 rounded flex items-center justify-center flex-shrink-0" style={{ background: `${dotColor}20` }}>                        {s.state === "completed" ? (                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={dotColor} strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>                        ) : s.state === "failed" ? (                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={dotColor} strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>                        ) : (                          <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={dotColor} strokeWidth="2.5"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>                        )}                      </div>                      <div className="flex-1 min-w-0">                        <p className="text-xs font-medium truncate" style={{ color: "#c0c0cc" }}>                          {s.prompt.slice(0, 42)}{s.prompt.length > 42 ? "…" : ""}                        </p>                        <p className="text-[11px] mt-0.5" style={{ color: "#3f3f50" }}>                          {s.state}                        </p>                      </div>                    </div>                  );                })}                {sessions.length === 0 && (                  <div className="py-8 flex flex-col items-center gap-2">                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#2a2a35" strokeWidth="1.5">                      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>                    </svg>                    <p className="text-xs" style={{ color: "#3f3f50" }}>No pipelines yet</p>                    <Link href="/deploy" className="text-[11px] font-semibold" style={{ color: "#7c45ff", textDecoration: "none" }}>                      Start deploying →                    </Link>                  </div>                )}              </div>            </div>            {/* Containers/Sessions table */}            <div className="lg:col-span-2 rounded-md flex flex-col" style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)" }}>              {/* Tab bar */}              <div className="flex" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>                {(["containers", "sessions", "audit"] as const).map((tab) => (                  <button                    key={tab}                    onClick={() => setActiveTab(tab)}                    className="px-4 py-3 text-xs font-semibold uppercase tracking-wider transition-colors"                    style={{                      color: activeTab === tab ? "#f0f0f5" : "#3f3f50",                      borderBottom: activeTab === tab ? "2px solid #7c45ff" : "2px solid transparent",                      background: "transparent",                    }}                  >                    {tab === "containers" ? "Containers" : tab === "sessions" ? "Sessions" : "Audit"}                  </button>                ))}              </div>              <div className="p-4 flex-1 flex flex-col" style={{ minHeight: 320 }}>                {activeTab === "containers" && (                  <>                    <div                      className="grid gap-3 pb-2 mb-1 text-[10px] font-semibold uppercase tracking-wider"                      style={{ gridTemplateColumns: "1fr 1fr 80px 80px", color: "#2a2a35", borderBottom: "1px solid rgba(255,255,255,0.04)" }}                    >                      <span>Name</span><span>Image</span><span>Status</span><span>Cloud</span>                    </div>                    <div className="flex-1 overflow-y-auto">                      {loadingContainers && (                        <div className="flex items-center justify-center h-24">                          <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7c45ff" strokeWidth="2">                            <circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/>                          </svg>                        </div>                      )}                      {!loadingContainers && containers.length === 0 && (                        <div className="flex flex-col items-center justify-center h-40 gap-2">                          <p className="text-xs" style={{ color: "#3f3f50" }}>No containers running</p>                          <Link href="/deploy" className="text-[11px] rounded px-3 py-1.5 font-bold" style={{ background: "rgba(124,69,255,0.12)", color: "#7c45ff", textDecoration: "none" }}>                            Deploy first app →                          </Link>                        </div>                      )}                      {containers.map((c) => (                        <div                          key={c.id}                          className="grid gap-3 py-2.5 transition-colors cursor-pointer"                          style={{ gridTemplateColumns: "1fr 1fr 80px 80px", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.03)" }}                          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}                        >                          <div className="flex items-center gap-2">                            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: c.status === "running" ? "#22c55e" : "#2a2a35" }} />                            <span className="text-xs font-medium truncate" style={{ color: "#c0c0cc" }}>{c.name}</span>                          </div>                          <span className="text-[11px] font-mono truncate" style={{ color: "#3f3f50" }}>{c.image}</span>                          <span className="text-[11px] font-medium" style={{ color: c.status === "running" ? "#22c55e" : "#3f3f50" }}>                            {c.status === "running" ? "Running" : "Stopped"}                          </span>                          <span className="text-[11px] px-1.5 py-0.5 rounded font-mono" style={{ color: "#3f3f50", background: "rgba(255,255,255,0.04)", width: "fit-content" }}>                            docker                          </span>                        </div>                      ))}                    </div>                  </>                )}                {activeTab === "sessions" && (                  <div className="flex-1 rounded font-mono text-xs overflow-y-auto p-3" style={{ background: "#060608", border: "1px solid rgba(255,255,255,0.05)", color: "#5a5a6e" }}>                    {sessions.length === 0 && (                      <p style={{ color: "#2a2a35" }}>No sessions yet.</p>                    )}                    {sessions.map((s) => (                      <p key={s.id} className="mb-1 leading-relaxed">                        <span style={{ color: "#2a2a35" }}>{new Date(s.created_at).toLocaleTimeString()}&nbsp;</span>                        <span style={{ color: s.state === "completed" ? "#22c55e" : s.state === "failed" ? "#ef4444" : "#7c45ff" }}>                          [{s.state}]&nbsp;                        </span>                        <span style={{ color: "#5a5a6e" }}>{s.prompt.slice(0, 72)}{s.prompt.length > 72 ? "…" : ""}</span>                      </p>                    ))}                    <p className="animate-pulse mt-1" style={{ color: "#2a2a35" }}>▌</p>                  </div>                )}                {activeTab === "audit" && (                  <div className="flex-1 flex flex-col gap-1.5 overflow-y-auto">                    {sessions.map((s) => (                      <Link                        key={s.id}                        href={`/sessions/${s.id}`}                        className="flex items-center justify-between px-3 py-2.5 rounded transition-colors"                        style={{ border: "1px solid rgba(255,255,255,0.04)", textDecoration: "none" }}                        onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.02)")}                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}                      >                        <div className="flex items-center gap-3 min-w-0">                          <div className="w-5 h-5 rounded flex items-center justify-center shrink-0" style={{ background: "rgba(255,255,255,0.05)" }}>                            {s.state === "completed" ? (                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>                            ) : s.state === "failed" ? (                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>                            ) : (                              <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.5"><circle cx="12" cy="12" r="10" opacity="0.2"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>                            )}                          </div>                          <div className="min-w-0">                            <p className="text-xs truncate" style={{ color: "#c0c0cc" }}>{s.prompt.slice(0, 50)}{s.prompt.length > 50 ? "…" : ""}</p>                            <p className="text-[10px] font-mono mt-0.5" style={{ color: "#2a2a35" }}>{s.id.slice(0, 14)}…</p>                          </div>                        </div>                        <div className="shrink-0 ml-3 flex flex-col items-end gap-1">                          <span                            className="text-[10px] px-1.5 py-0.5 rounded font-mono"                            style={{                              color: s.state === "completed" ? "#22c55e" : s.state === "failed" ? "#ef4444" : "#f59e0b",                              background: "rgba(255,255,255,0.05)",                            }}                          >                            {s.state}                          </span>                          <Link href={`/verify/${s.id}`} className="text-[10px] font-semibold" style={{ color: "#7c45ff", textDecoration: "none" }} onClick={(e) => e.stopPropagation()}>                            verify →                          </Link>                        </div>                      </Link>                    ))}                    {sessions.length === 0 && (                      <p className="text-xs py-8 text-center" style={{ color: "#3f3f50" }}>No audit entries yet.</p>                    )}                  </div>                )}              </div>            </div>          </div>          {/* Quick actions */}          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">            {[              { label: "New Deployment", href: "/deploy", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 3 21 3 21 8"/><path d="M4 20L21 3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg> },              { label: "Manage Secrets", href: "/secrets", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M21 2l-9.6 9.6M15.5 7.5l2 2"/></svg> },              { label: "Attestations", href: "/attestations", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> },              { label: "Payments", href: "/payments", icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> },            ].map(({ label, href, icon }) => (              <Link                key={label}                href={href}                className="flex items-center gap-3 px-4 py-3 rounded-md text-sm font-medium transition-colors"                style={{ background: "#0e0e10", border: "1px solid rgba(255,255,255,0.07)", color: "#5a5a6e", textDecoration: "none" }}                onMouseEnter={(e) => {                  (e.currentTarget as HTMLElement).style.color = "#c0c0cc";                  (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.12)";                }}                onMouseLeave={(e) => {                  (e.currentTarget as HTMLElement).style.color = "#5a5a6e";                  (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.07)";                }}              >                {icon}                {label}              </Link>            ))}          </div>        </div>      </main>    </div>  );}
+"use client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { WalletButton } from "@/components/WalletButton";
+import { useBalance } from "wagmi";
+import { baseSepolia } from "viem/chains";
+import { Sidebar } from "@/components/Sidebar";
+import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
+import { MoreHorizontal, ChevronUp, ChevronDown } from "lucide-react";
+
+type Container = {
+  id: string;
+  name: string;
+  image: string;
+  status: string;
+  ports: Record<string, string[]> | null;
+  created: string;
+};
+type SessionSummary = {
+  id: string;
+  prompt: string;
+  state: string;
+  created_at: string;
+  updated_at: string;
+};
+function useClock() {
+  const [time, setTime] = useState("");
+  useEffect(() => {
+    const fmt = () =>
+      new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+    setTime(fmt());
+    const t = setInterval(() => setTime(fmt()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return time;
+}
+export default function Home() {
+  const { address, isConnected, teamId, teamName, isNewAccount } = useAuth();
+  const { data: balance } = useBalance({ address: address as `0x${string}` | undefined, chainId: baseSepolia.id });
+  const clock = useClock();
+  const [containers, setContainers] = useState<Container[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  const [loadingContainers, setLoadingContainers] = useState(false);
+  useEffect(() => {
+    if (!teamId) return;
+    setLoadingContainers(true);
+    apiFetch(`/teams/${teamId}/containers`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((c) => { if (Array.isArray(c)) setContainers(c); })
+      .catch(() => {})
+      .finally(() => setLoadingContainers(false));
+    apiFetch(`/teams/${teamId}/sessions`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((s) => { if (Array.isArray(s)) setSessions(s); })
+      .catch(() => {});
+  }, [teamId]);
+  const running = containers.filter((c) => c.status === "running").length;
+  const completed = sessions.filter((s) => s.state === "completed").length;
+  const successRate = sessions.length > 0 ? Math.round((completed / sessions.length) * 100) : 0;
+  const seedBars = [40, 60, 45, 70, 85, 95, 80, 65];
+  const containerBars = seedBars.map((v, i) => containers.length > 0 ? Math.max(20, running * 10 + i * 5) : v);
+  const sessionBars = [30, 40, 50, 45, 55, 60, 50, 40].map((v, i) => sessions.length > 0 ? Math.max(15, (sessions.length % 8) * 10 + i * 3) : v);
+  const computeBars = [50, 45, 60, 55, 80, 90, 100, 95].map((v, i) => sessions.length > 0 ? Math.min(100, successRate + i * 3) : v);
+  const days = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, i) => ({
+    day,
+    val: sessions.filter((_, si) => si % 7 === i).length,
+  }));
+  const todayIdx = (new Date().getDay() + 6) % 7;
+  const maxDay = Math.max(...days.map((d) => d.val), 1);
+  return (
+    <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#f9fafb" }}>
+      <Sidebar mode="user" />
+      <main className="flex-1 flex flex-col overflow-y-auto">
+        <div className="px-8 py-8 flex flex-col gap-8">
+
+          {/* ── Header ── */}
+          <header className="flex items-center justify-between">
+            <h1 className="text-3xl font-light tracking-tight">Overview</h1>
+            <div className="flex items-center gap-4">
+              <div className="text-xl font-light tracking-tight">
+                {clock} <span className="text-[11px] text-gray-500 ml-1 uppercase tracking-wider">Time</span>
+              </div>
+              {isConnected && balance && (
+                <div className="px-3 py-1.5 rounded-full text-xs font-mono border border-white/10 text-gray-400">
+                  {parseFloat(balance.formatted).toFixed(4)} ETH
+                </div>
+              )}
+              <WalletButton />
+              <Link
+                href="/deploy"
+                className="flex items-center gap-2 rounded-full px-5 py-2 text-sm font-medium transition-all hover:opacity-90"
+                style={{ background: "#e2f0d9", color: "#111111", textDecoration: "none" }}
+              >
+                Deploy
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                </svg>
+              </Link>
+            </div>
+          </header>
+
+          {/* ── Onboarding banner ── */}
+          {isNewAccount && (
+            <Link
+              href="/onboarding"
+              className="flex items-center justify-between rounded-2xl px-5 py-4"
+              style={{ background: "rgba(226,240,217,0.06)", border: "1px solid rgba(226,240,217,0.18)", textDecoration: "none" }}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center" style={{ background: "rgba(226,240,217,0.15)" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e2f0d9" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">
+                    {teamName && !teamName.startsWith("account-") ? `Welcome, ${teamName}` : "Set up your account"}
+                  </p>
+                  <p className="text-xs text-gray-500">Add a display name to personalize your workspace.</p>
+                </div>
+              </div>
+              <span className="text-xs font-medium" style={{ color: "#e2f0d9" }}>Set up →</span>
+            </Link>
+          )}
+
+          {/* ── Main dashboard grid ── */}
+          <div className="grid grid-cols-12 gap-5">
+
+            {/* Resource Activity — spans 7 cols */}
+            <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 border border-white/5" style={{ background: "#1a1a1a" }}>
+              <div className="flex justify-between items-start mb-10">
+                <h2 className="text-xl font-light">Resource activity</h2>
+                <Link
+                  href="/deploy"
+                  className="px-4 py-1.5 rounded-full border border-white/10 text-xs text-gray-400 hover:bg-white/5 transition-colors"
+                  style={{ textDecoration: "none" }}
+                >
+                  New pipeline
+                </Link>
+              </div>
+              <div className="grid grid-cols-3 gap-8">
+                {/* Containers */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center text-xs text-gray-400">
+                    <span className="flex items-center gap-1">Containers <ChevronUp size={12} /></span>
+                    <MoreHorizontal size={14} className="cursor-pointer" />
+                  </div>
+                  <div className="h-28 flex items-end gap-1 px-2">
+                    {containerBars.map((h, i) => (
+                      <div key={i} className="flex-1 rounded-t-sm" style={{ height: `${h}%`, background: "rgba(255,255,255,0.2)" }} />
+                    ))}
+                  </div>
+                  <div>
+                    <div className="text-4xl font-light">{running}–{containers.length}</div>
+                    <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">running / total</div>
+                  </div>
+                </div>
+                {/* Pipelines */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center text-xs text-gray-400">
+                    <span className="flex items-center gap-1">Pipelines <ChevronDown size={12} /></span>
+                    <MoreHorizontal size={14} className="cursor-pointer" />
+                  </div>
+                  <div className="h-28 flex items-end gap-1 px-2">
+                    {sessionBars.map((h, i) => (
+                      <div key={i} className="flex-1 rounded-t-sm" style={{ height: `${h}%`, background: "rgba(255,255,255,0.4)" }} />
+                    ))}
+                  </div>
+                  <div>
+                    <div className="text-4xl font-light">{completed}–{sessions.length}</div>
+                    <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">done / total</div>
+                  </div>
+                </div>
+                {/* Compute */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center text-xs text-gray-400">
+                    <span className="flex items-center gap-1">Compute <ChevronDown size={12} /></span>
+                    <MoreHorizontal size={14} className="cursor-pointer" />
+                  </div>
+                  <div className="h-28 flex items-end gap-1 px-2">
+                    {computeBars.map((h, i) => (
+                      <div key={i} className="flex-1 rounded-t-sm bg-white" style={{ height: `${h}%` }} />
+                    ))}
+                  </div>
+                  <div>
+                    <div className="text-4xl font-light">{successRate}%</div>
+                    <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">success rate</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Workspaces — 3 cols */}
+            <div className="col-span-12 lg:col-span-3 rounded-3xl p-8 border border-white/5 relative overflow-hidden" style={{ background: "#1a1a1a" }}>
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-xl font-light">Workspaces</h2>
+                <MoreHorizontal size={18} className="text-gray-500 cursor-pointer" />
+              </div>
+              <div className="flex justify-between items-center mb-6">
+                <div className="text-xs text-gray-400">Network <span className="text-gray-200">Base Sepolia</span></div>
+                <div className="w-10 h-5 rounded-full p-0.5 flex items-center cursor-pointer" style={{ background: "#e2f0d9" }}>
+                  <div className="w-4 h-4 rounded-full ml-auto" style={{ background: "#111111" }} />
+                </div>
+              </div>
+              <div className="h-36 w-full relative mb-6">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <svg viewBox="0 0 200 120" className="w-full h-full" style={{ opacity: 0.4 }}>
+                    <path d="M40,100 L160,100 L180,70 L60,70 Z" fill="none" stroke="#e2f0d9" strokeWidth="0.5" />
+                    <path d="M40,100 L40,40 L60,10 L180,10 L180,70" fill="none" stroke="#e2f0d9" strokeWidth="0.5" />
+                    <line x1="160" y1="100" x2="160" y2="40" stroke="#e2f0d9" strokeWidth="0.5" />
+                    <line x1="180" y1="10" x2="160" y2="40" stroke="#e2f0d9" strokeWidth="0.5" />
+                    <line x1="60" y1="70" x2="60" y2="10" stroke="#e2f0d9" strokeWidth="0.5" />
+                    <rect x="80" y="42" width="40" height="26" fill="none" stroke="#e2f0d9" strokeWidth="0.5" />
+                    <rect x="82" y="44" width="36" height="22" fill="#e2f0d9" fillOpacity="0.08" />
+                    {running > 0 && <circle cx="100" cy="55" r="4" fill="#e2f0d9" opacity="0.7" />}
+                  </svg>
+                </div>
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(to top, #1a1a1a 5%, transparent 60%)" }} />
+              </div>
+              <div className="flex items-center justify-between pt-4 border-t border-white/5">
+                <span className="text-xs text-gray-400">Active</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-16 h-1.5 rounded-full overflow-hidden bg-white/10">
+                    <div style={{ width: `${containers.length > 0 ? Math.round((running / containers.length) * 100) : 0}%`, height: "100%", background: "#e2f0d9" }} />
+                  </div>
+                  <span className="text-lg font-light">{running}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Tips — 2 cols */}
+            <div className="col-span-12 lg:col-span-2 rounded-3xl p-8 border border-white/5" style={{ background: "#1a1a1a" }}>
+              <h2 className="text-xl font-light mb-2">Tips</h2>
+              <p className="text-[10px] text-gray-500 mb-8 uppercase tracking-widest">For your workspace</p>
+              <div className="space-y-4">
+                <div className="p-4 rounded-2xl text-black" style={{ background: "#e2f0d9" }}>
+                  <div className="text-sm font-medium leading-snug mb-2">
+                    {isNewAccount ? "Launch your first pipeline to get started" : "Scale with trusted providers on-chain"}
+                  </div>
+                  <div className="text-[10px] opacity-60 uppercase tracking-tighter">Recommendation</div>
+                </div>
+                <div className="p-4 rounded-2xl bg-white/5">
+                  <div className="text-sm font-light text-gray-300 leading-snug mb-2">Encrypt secrets before deployment</div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-tighter">Security tip</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Balance — sage, 2 cols */}
+            <div className="col-span-12 lg:col-span-2 rounded-3xl p-8 text-black flex flex-col justify-between" style={{ background: "#e2f0d9", minHeight: 220 }}>
+              <div className="flex justify-between items-start">
+                <h2 className="text-xl font-medium tracking-tight">Balance</h2>
+                <MoreHorizontal size={18} className="opacity-40" />
+              </div>
+              <div>
+                <div className="text-[11px] opacity-60 mb-1">ETH on Base Sepolia</div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-5xl font-light tracking-tighter">
+                    {balance ? parseFloat(balance.formatted).toFixed(3) : "–"}
+                  </span>
+                  <span className="text-xs opacity-60 font-medium">ETH</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Pipeline Report — 4 cols */}
+            <div className="col-span-12 lg:col-span-4 rounded-3xl p-8 border border-white/5 flex flex-col justify-between" style={{ background: "#1a1a1a" }}>
+              <div>
+                <div className="flex justify-between items-start mb-2">
+                  <h2 className="text-xl font-light">Pipeline report</h2>
+                  <button className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/10 text-[10px] uppercase text-gray-500">
+                    Week <ChevronDown size={9} />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mb-8">Deployment activity by day</p>
+              </div>
+              <div className="flex items-end justify-between h-36 px-2 relative">
+                {days.map((d, i) => {
+                  const barH = Math.max(6, Math.round((d.val / maxDay) * 100));
+                  const isToday = i === todayIdx;
+                  return (
+                    <div key={i} className="flex flex-col items-center gap-3 flex-1">
+                      <div className="text-[10px] text-gray-500 flex items-center gap-0.5">
+                        {d.day} {i < 5 ? <ChevronUp size={8} /> : <ChevronDown size={8} />}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mb-1">
+                        {d.val}
+                        <span className="text-[8px] text-gray-600 block text-center">jobs</span>
+                      </div>
+                      <div className="w-full px-0.5">
+                        <div
+                          className="w-full rounded-sm transition-all duration-500"
+                          style={{ height: `${barH}px`, background: isToday ? "#e2f0d9" : "rgba(255,255,255,0.1)" }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Deployment Health — sage, 6 cols */}
+            <div className="col-span-12 lg:col-span-6 rounded-3xl p-8 text-black relative" style={{ background: "#e2f0d9" }}>
+              <h2 className="text-xl font-medium tracking-tight mb-1">Deployment health</h2>
+              <p className="text-xs opacity-60 mb-10">Pipeline success &amp; failure rate</p>
+              <div className="flex items-end justify-between">
+                <div className="space-y-1">
+                  <div className="text-7xl font-light tracking-tighter">{successRate}%</div>
+                  <div className="text-[10px] font-medium opacity-60 uppercase">
+                    {completed} of {sessions.length} succeeded
+                  </div>
+                </div>
+                <div className="flex-1 max-w-sm pb-4 ml-10">
+                  <div className="relative">
+                    <div className="absolute h-px w-full top-4" style={{ background: "rgba(0,0,0,0.12)" }} />
+                    <div className="flex justify-between relative z-10">
+                      {["New","Queue","Run","Verify","Done"].map((label, i) => {
+                        const filled = i < Math.ceil((successRate / 100) * 5);
+                        return (
+                          <div key={label} className="flex flex-col items-center gap-3">
+                            <div
+                              className="w-8 h-8 rounded-full border flex items-center justify-center"
+                              style={{ background: filled ? "#111111" : "#e2f0d9", borderColor: "rgba(0,0,0,0.15)" }}
+                            >
+                              {!filled && <div className="w-1.5 h-1.5 rounded-full border border-black/30" />}
+                            </div>
+                            <span className="text-[9px] font-medium uppercase">{label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {sessions.length > 0 ? (
+                <div className="mt-8 pt-6 border-t border-black/10">
+                  <div className="flex gap-3 overflow-x-auto pb-1">
+                    {sessions.slice(0, 5).map((s) => (
+                      <Link
+                        key={s.id}
+                        href={`/sessions/${s.id}`}
+                        className="shrink-0 flex flex-col gap-1 px-3 py-2 rounded-xl"
+                        style={{ background: "rgba(0,0,0,0.07)", textDecoration: "none", minWidth: 120 }}
+                      >
+                        <span className="text-[10px] font-mono truncate" style={{ color: "rgba(0,0,0,0.5)" }}>{s.id.slice(0, 10)}…</span>
+                        <span className="text-[11px] font-medium truncate" style={{ color: "rgba(0,0,0,0.75)" }}>
+                          {s.prompt.slice(0, 24)}{s.prompt.length > 24 ? "…" : ""}
+                        </span>
+                        <span
+                          className="text-[10px] font-semibold"
+                          style={{ color: s.state === "completed" ? "#22c55e" : s.state === "failed" ? "#ef4444" : "#f59e0b" }}
+                        >
+                          {s.state}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-8 pt-6 border-t border-black/10 flex items-center justify-between">
+                  <p className="text-xs opacity-50">No deployments yet</p>
+                  <Link
+                    href="/deploy"
+                    className="text-xs font-semibold px-4 py-2 rounded-full"
+                    style={{ background: "#111111", color: "#e2f0d9", textDecoration: "none" }}
+                  >
+                    Start deploying →
+                  </Link>
+                </div>
+              )}
+            </div>
+
+          </div>
+
+          {/* ── Quick-action row ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            {[
+              { label: "New Deployment", href: "/deploy", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="16 3 21 3 21 8"/><path d="M4 20L21 3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg> },
+              { label: "Manage Secrets", href: "/secrets", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M21 2l-9.6 9.6M15.5 7.5l2 2"/></svg> },
+              { label: "Attestations",   href: "/attestations", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> },
+              { label: "Payments",       href: "/payments", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg> },
+            ].map(({ label, href, icon }) => (
+              <Link
+                key={label}
+                href={href}
+                className="flex items-center gap-3 px-5 py-3.5 rounded-2xl text-sm font-light border border-white/5 hover:border-white/10 transition-all"
+                style={{ background: "#1a1a1a", color: "#6b7280", textDecoration: "none" }}
+              >
+                {icon}
+                {label}
+              </Link>
+            ))}
+          </div>
+
+        </div>
+      </main>
+    </div>
+  );
+}

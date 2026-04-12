@@ -7,7 +7,7 @@ import { baseSepolia } from "viem/chains";
 import { useBalance } from "wagmi";
 import { apiFetch } from "@/lib/api";
 
-const ACCENT = "#7c45ff";
+const ACCENT = "#e2f0d9";
 
 type Payment = {
   id: number;
@@ -46,13 +46,13 @@ export default function PaymentsPage() {
     .toFixed(4);
 
   return (
-    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
       <main className="flex-1 flex flex-col overflow-y-auto">
         <div className="p-8">
           <header className="mb-6">
-            <p className="text-3xl font-black leading-tight tracking-tight" style={{ color: "#F9FAFB" }}>Payments</p>
+            <p className="text-3xl font-light tracking-tight" style={{ color: "#F9FAFB" }}>Payments</p>
             <p className="text-sm font-mono mt-1" style={{ color: "#6B7280" }}>
               x402 micro-payments on Base Sepolia
             </p>
@@ -65,17 +65,17 @@ export default function PaymentsPage() {
               { label: "Transactions", value: loading ? "…" : String(payments.length), accent: false },
               { label: "Protocol", value: "x402", accent: false },
             ].map((c) => (
-              <div key={c.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+              <div key={c.label} className="flex flex-col gap-2 rounded-3xl p-4" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
                 <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{c.label}</p>
                 <p className="text-xl font-bold font-mono" style={{ color: c.accent ? ACCENT : "#F9FAFB" }}>{c.value}</p>
               </div>
             ))}
           </div>
 
-          <div className="rounded-xl overflow-hidden" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+          <div className="rounded-3xl overflow-hidden" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
             <div
               className="grid gap-4 px-5 py-3 text-xs font-semibold uppercase tracking-wider"
-              style={{ gridTemplateColumns: "1fr 100px 80px 140px 1fr", color: "#4B5563", borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}
+              style={{ gridTemplateColumns: "1fr 100px 80px 140px 1fr", color: "#4B5563", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "#111111" }}
             >
               <span>Session / Nonce</span>
               <span>Amount</span>

@@ -5,7 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
-const ACCENT = "#7c45ff";
+const ACCENT = "#e2f0d9";
 
 type AttestationRow = {
   session_id: string;
@@ -36,21 +36,21 @@ export default function AttestationsPage() {
   }, [teamId]);
 
   return (
-    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
       <main className="flex-1 flex flex-col overflow-y-auto">
         <div className="p-8">
           <header className="flex flex-wrap justify-between items-start gap-4 mb-6">
             <div>
-              <p className="text-3xl font-black leading-tight tracking-tight" style={{ color: "#F9FAFB" }}>Attestations</p>
+              <p className="text-3xl font-light tracking-tight" style={{ color: "#F9FAFB" }}>Attestations</p>
               <p className="text-sm font-mono mt-1" style={{ color: "#6B7280" }}>
                 On-chain attestations issued via EAS on Base Sepolia
               </p>
             </div>
             <div
               className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-mono"
-              style={{ background: "rgba(124,69,255,0.1)", border: "1px solid rgba(124,69,255,0.25)", color: ACCENT }}
+              style={{ background: "rgba(226,240,217,0.1)", border: "1px solid rgba(124,69,255,0.25)", color: ACCENT }}
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
@@ -65,17 +65,17 @@ export default function AttestationsPage() {
               { label: "Unique Sessions", value: loading ? "…" : String(new Set(rows.map((r) => r.session_id)).size) },
               { label: "Schema UID", value: schemaUID },
             ].map((c) => (
-              <div key={c.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+              <div key={c.label} className="flex flex-col gap-2 rounded-3xl p-4" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
                 <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{c.label}</p>
                 <p className="text-xl font-bold font-mono" style={{ color: "#F9FAFB" }}>{c.value}</p>
               </div>
             ))}
           </div>
 
-          <div className="rounded-xl overflow-hidden" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+          <div className="rounded-3xl overflow-hidden" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
             <div
               className="grid gap-4 px-5 py-3 text-xs font-semibold uppercase tracking-wider"
-              style={{ gridTemplateColumns: "1fr 120px 120px 1fr", color: "#4B5563", borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}
+              style={{ gridTemplateColumns: "1fr 120px 120px 1fr", color: "#4B5563", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "#111111" }}
             >
               <span>Attestation UID</span>
               <span>Session</span>
