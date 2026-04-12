@@ -22,7 +22,7 @@ func setupLUKSHome(storageDir, vaultKey string) (mountPath string, err error) {
 	mapper := "zkloud-" + randomMapperSuffix()
 	keyfile := storageDir + "/vault.key"
 
-	if err := os.MkdirAll(mountPath, 0o755); err != nil {
+	if err := os.MkdirAll(mountPath, 0o700); err != nil {
 		return "", fmt.Errorf("mkdir mountpath: %w", err)
 	}
 
@@ -72,7 +72,12 @@ func setupLUKSHome(storageDir, vaultKey string) (mountPath string, err error) {
 			run("losetup", "-d", loopDev)      //nolint:errcheck
 			return "", fmt.Errorf("mount: %w", err)
 		}
-		log.Printf("[luks] formatted and mounted at %s (mapper=%s loop=%s)", mountPath, mapper, loopDev)
+		// Restrict the decrypted mount to root only — no other host user can list or
+		// read the files even while the vault is open.
+		if err := os.Chmod(mountPath, 0o700); err != nil {
+			log.Printf("[luks] chmod mountpath: %v (non-fatal)", err)
+		}
+		log.Printf("[luks] formatted and mounted at %s (mapper=%s loop=%s, mode=0700)", mountPath, mapper, loopDev)
 	} else {
 		// Subsequent boot: re-open.
 		log.Printf("[luks] re-opening existing vault at %s", imgPath)
@@ -88,7 +93,11 @@ func setupLUKSHome(storageDir, vaultKey string) (mountPath string, err error) {
 			run("losetup", "-d", loopDev)      //nolint:errcheck
 			return "", fmt.Errorf("mount: %w", err)
 		}
-		log.Printf("[luks] re-mounted at %s (mapper=%s loop=%s)", mountPath, mapper, loopDev)
+		// Re-apply root-only permissions in case they were changed while unmounted.
+		if err := os.Chmod(mountPath, 0o700); err != nil {
+			log.Printf("[luks] chmod mountpath: %v (non-fatal)", err)
+		}
+		log.Printf("[luks] re-mounted at %s (mapper=%s loop=%s, mode=0700)", mountPath, mapper, loopDev)
 	}
 
 	return mountPath, nil
