@@ -33,17 +33,19 @@ type RepoScan = {
 };
 
 type PlanContainer = {
-  name: string;
-  image: string;
-  ram_mb: number;
-  cpu_cores: number;
-  ports: string[];
+  name?: string;
+  image?: string;
+  ram_mb?: number;
+  cpu_cores?: number;
+  ports?: string[];
+  reason?: string;
 };
 
 type PlanData = {
   summary: string;
   estimated_cost_per_hour?: number;
   has_smart_contracts?: boolean;
+  status?: string;
   containers?: PlanContainer[];
 };
 
@@ -208,23 +210,43 @@ export default function DeployPage() {
 
     ws.onmessage = (e) => {
       try {
-        const evt = JSON.parse(e.data) as { type: string; data?: unknown };
-        const le: LiveEvent = { type: evt.type as LiveEvent["type"], data: evt.data, ts: Date.now() };
+        // Message shape from backend:
+        // { type: "plan",    plan: {...} }
+        // { type: "message", message: "..." }
+        // { type: "action",  action: {...} }
+        // { type: "done",    ... }
+        // { type: "error",   error: "..." }
+        const evt = JSON.parse(e.data) as {
+          type: string;
+          plan?: PlanData;
+          message?: string;
+          action?: { tool: string; input: unknown; result: unknown; index: number };
+          error?: string;
+          container_id?: string;
+          app_url?: string;
+        };
+
+        // Normalise to a single `data` field for the event log
+        const evtData =
+          evt.type === "plan"    ? evt.plan :
+          evt.type === "message" ? evt.message :
+          evt.type === "action"  ? evt.action :
+          evt.type === "error"   ? (evt.error ?? evt) :
+          evt;
+
+        const le: LiveEvent = { type: evt.type as LiveEvent["type"], data: evtData, ts: Date.now() };
         setLiveEvents((prev) => [...prev, le]);
 
         if (evt.type === "plan") {
-          setPlan(evt.data as PlanData);
+          setPlan(evt.plan ?? null);
           setPhase("awaiting_confirm");
         } else if (evt.type === "done") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const d = evt.data as any;
-          if (d?.container_id) setAppURL(`https://${d.container_id}.deploy.comput3.xyz`);
-          else if (d?.app_url) setAppURL(d.app_url);
+          if (evt.container_id) setAppURL(`https://${evt.container_id}.deploy.comput3.xyz`);
+          else if (evt.app_url) setAppURL(evt.app_url);
           setPhase("done");
           ws.close();
         } else if (evt.type === "error") {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          setErrMsg((evt.data as any)?.message ?? String(evt.data) ?? "Deployment failed");
+          setErrMsg(typeof evt.error === "string" ? evt.error : JSON.stringify(evt.error) ?? "Deployment failed");
           setPhase("error");
           ws.close();
         }
@@ -635,9 +657,10 @@ export default function DeployPage() {
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
                           {plan.containers.map((c, i) => (
                             <div key={i} style={{ display: "flex", gap: 8, padding: "8px 12px", borderRadius: 6, background: "#161618", border: `1px solid ${BORDER}` }}>
-                              <span style={{ fontSize: 12, fontFamily: "monospace", color: ACCENT, minWidth: 80 }}>{c.name}</span>
-                              <span style={{ fontSize: 12, fontFamily: "monospace", color: "#6B7280" }}>{c.image}</span>
-                              <span style={{ marginLeft: "auto", fontSize: 11, color: "#4B5563" }}>{c.ram_mb}MB · {c.cpu_cores} cpu</span>
+                              {c.name && <span style={{ fontSize: 12, fontFamily: "monospace", color: ACCENT, minWidth: 80 }}>{c.name}</span>}
+                              {c.image && <span style={{ fontSize: 12, fontFamily: "monospace", color: "#6B7280" }}>{c.image}</span>}
+                              {c.reason && !c.name && <span style={{ fontSize: 12, color: "#9CA3AF", fontStyle: "italic" }}>{c.reason}</span>}
+                              {c.ram_mb != null && <span style={{ marginLeft: "auto", fontSize: 11, color: "#4B5563" }}>{c.ram_mb}MB · {c.cpu_cores} cpu</span>}
                             </div>
                           ))}
                         </div>
@@ -662,7 +685,21 @@ export default function DeployPage() {
                     {liveEvents.map((evt, i) => {
                       const color = evt.type === "plan" ? "#eab308" : evt.type === "done" ? "#22c55e" : evt.type === "error" ? "#ef4444" : evt.type === "action" ? "#60a5fa" : "#9CA3AF";
                       const prefix = evt.type === "plan" ? "📋 plan " : evt.type === "done" ? "✓ done " : evt.type === "error" ? "✗ error " : evt.type === "action" ? "⚡ " : "· ";
-                      const text = evt.type === "message" ? (typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data)) : evt.type === "plan" ? (evt.data?.summary ?? "Plan received") : evt.type === "action" ? (evt.data?.tool ?? JSON.stringify(evt.data)) : evt.type === "done" ? "Deployment complete" : evt.type === "error" ? (evt.data?.message ?? String(evt.data)) : JSON.stringify(evt.data);
+                      let text: string;
+                      if (evt.type === "message") {
+                        text = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data);
+                      } else if (evt.type === "plan") {
+                        text = (evt.data as PlanData)?.summary ?? "Plan received";
+                      } else if (evt.type === "action") {
+                        const a = evt.data as { tool?: string; input?: unknown };
+                        text = a?.tool ? `${a.tool}` + (a.input ? ` — ${JSON.stringify(a.input).slice(0, 80)}` : "") : JSON.stringify(evt.data);
+                      } else if (evt.type === "done") {
+                        text = "Deployment complete";
+                      } else if (evt.type === "error") {
+                        text = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data);
+                      } else {
+                        text = JSON.stringify(evt.data);
+                      }
                       return (
                         <div key={i} style={{ color, lineHeight: 1.5 }}>
                           <span style={{ color: "#374151" }}>{new Date(evt.ts).toLocaleTimeString()} </span>

@@ -36,7 +36,11 @@ type ActionLog = {
 
 type LiveEvent = {
   type: "message" | "action" | "plan" | "done" | "error";
-  data?: unknown;
+  message?: string;
+  action?: unknown;
+  plan?: PlanData;
+  data?: { container_id?: string };
+  error?: string;
 };
 
 type PlanContainer = {
@@ -101,8 +105,12 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const [plan, setPlan] = useState<PlanData | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [appURL, setAppURL] = useState("");
+  const [wsStatus, setWsStatus] = useState<"connecting" | "connected" | "reconnecting" | "disconnected">("connecting");
   const wsRef = useRef<WebSocket | null>(null);
   const liveEndRef = useRef<HTMLDivElement | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const intentionalCloseRef = useRef(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -117,19 +125,20 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
 
     async function load() {
       try {
-        const [sessRes, logRes] = await Promise.all([
-          apiFetch(`/sessions/${sessionId}`),
-          apiFetch(`/sessions/${sessionId}/log`),
-        ]);
+        const sessRes = await apiFetch(`/sessions/${sessionId}`);
         if (!sessRes.ok) throw new Error(await sessRes.text());
         const sessData: SessionData = await sessRes.json();
         setSession(sessData);
-        if (logRes.ok) {
-          const rawLog = await logRes.json();
-          setLog({
-            ...rawLog,
-            actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
-          });
+        // Only fetch log when session is not running (log only exists after completion)
+        if (sessData.state !== "running") {
+          const logRes = await apiFetch(`/sessions/${sessionId}/log`);
+          if (logRes.ok) {
+            const rawLog = await logRes.json();
+            setLog({
+              ...rawLog,
+              actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
+            });
+          }
         }
         // If still running, connect WebSocket for live events
         if (sessData.state === "running") {
@@ -142,25 +151,70 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
       }
     }
     load();
-    return () => wsRef.current?.close();
+    return () => {
+      intentionalCloseRef.current = true;
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+      wsRef.current?.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, isAuthenticated]);
 
+  function scheduleReconnect(sid: string) {
+    reconnectAttemptsRef.current += 1;
+    // Exponential backoff: 2s, 4s, 8s, 16s, capped at 30s
+    const delay = Math.min(2000 * Math.pow(2, reconnectAttemptsRef.current - 1), 30_000);
+    setWsStatus("reconnecting");
+    reconnectTimerRef.current = setTimeout(async () => {
+      if (intentionalCloseRef.current) return;
+      // Re-fetch session state — it may have completed while we were disconnected
+      try {
+        const res = await apiFetch(`/sessions/${sid}`);
+        if (!res.ok) { setWsStatus("disconnected"); return; }
+        const sessData: SessionData = await res.json();
+        setSession(sessData);
+        if (sessData.state === "running") {
+          connectStream(sid);
+        } else {
+          // Session finished while disconnected — fetch log and show it
+          setWsStatus("disconnected");
+          const logRes = await apiFetch(`/sessions/${sid}/log`);
+          if (logRes.ok) {
+            const rawLog = await logRes.json();
+            setLog({
+              ...rawLog,
+              actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
+            });
+          }
+        }
+      } catch {
+        setWsStatus("disconnected");
+      }
+    }, delay);
+  }
+
   function connectStream(sid: string) {
+    if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
+    setWsStatus("connecting");
     const ws = new WebSocket(`${WS_API}/sessions/${sid}/stream`);
     wsRef.current = ws;
+    ws.onopen = () => {
+      setWsStatus("connected");
+      reconnectAttemptsRef.current = 0;
+    };
     ws.onmessage = (e) => {
       try {
         const evt: LiveEvent = JSON.parse(e.data);
         setLiveEvents((prev) => [...prev, evt]);
         if (evt.type === "plan") {
-          setPlan(evt.data as PlanData);
+          setPlan(evt.plan ?? null);
         } else if (evt.type === "done") {
-          const d = evt.data as { container_id?: string };
+          const d = evt.data;
           if (d?.container_id) setAppURL(`https://${d.container_id}.deploy.comput3.xyz`);
           setSession((prev) => prev ? { ...prev, state: "completed" } : prev);
+          intentionalCloseRef.current = true;
           ws.close();
-          // Reload log after completion
+          setWsStatus("disconnected");
+          // Fetch log now that it exists
           apiFetch(`/sessions/${sid}/log`)
             .then((r) => (r.ok ? r.json() : null))
             .then((rawLog) => {
@@ -174,14 +228,23 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             .catch(() => {});
         } else if (evt.type === "error") {
           setSession((prev) => prev ? { ...prev, state: "failed" } : prev);
+          intentionalCloseRef.current = true;
           ws.close();
+          setWsStatus("disconnected");
         }
         liveEndRef.current?.scrollIntoView({ behavior: "smooth" });
       } catch {
         // ignore parse errors
       }
     };
-    ws.onerror = () => ws.close();
+    ws.onclose = () => {
+      if (!intentionalCloseRef.current) {
+        scheduleReconnect(sid);
+      }
+    };
+    ws.onerror = () => {
+      ws.close();
+    };
   }
 
   async function handleConfirm(approved: boolean) {
@@ -436,11 +499,38 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
         )}
 
         {/* Live event stream */}
-        {liveEvents.length > 0 && (
+        {(liveEvents.length > 0 || session?.state === "running") && (
           <div className="mb-6">
-            <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#4b5563" }}>
-              Live Stream — {liveEvents.length} events
-            </h2>
+            <div className="flex items-center gap-3 mb-3">
+              <h2 className="text-xs font-semibold uppercase tracking-widest" style={{ color: "#4b5563" }}>
+                Live Stream — {liveEvents.length} events
+              </h2>
+              {session?.state === "running" && (
+                <span
+                  className="text-xs px-2 py-0.5 rounded-sm font-semibold"
+                  style={{
+                    background:
+                      wsStatus === "connected" ? "#052e16" :
+                      wsStatus === "connecting" ? "#1c1917" :
+                      wsStatus === "reconnecting" ? "#1c0a00" : "#1f1315",
+                    color:
+                      wsStatus === "connected" ? "#4ade80" :
+                      wsStatus === "connecting" ? "#a8a29e" :
+                      wsStatus === "reconnecting" ? "#fb923c" : "#f87171",
+                    border: `1px solid ${
+                      wsStatus === "connected" ? "#14532d" :
+                      wsStatus === "connecting" ? "#292524" :
+                      wsStatus === "reconnecting" ? "#7c2d12" : "#450a0a"
+                    }`,
+                  }}
+                >
+                  {wsStatus === "connected" && "● live"}
+                  {wsStatus === "connecting" && "◌ connecting…"}
+                  {wsStatus === "reconnecting" && `↻ reconnecting… (attempt ${reconnectAttemptsRef.current})`}
+                  {wsStatus === "disconnected" && "○ disconnected"}
+                </span>
+              )}
+            </div>
             <div
               className="rounded-sm overflow-y-auto"
               style={{
@@ -469,9 +559,11 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
                     [{evt.type}]
                   </span>
                   <span className="text-xs font-mono" style={{ color: "#9ca3af" }}>
-                    {typeof evt.data === "string"
-                      ? evt.data
-                      : JSON.stringify(evt.data).slice(0, 120)}
+                    {evt.type === "message" && (typeof evt.message === "string" ? evt.message : JSON.stringify(evt.message))}
+                    {evt.type === "action" && JSON.stringify(evt.action).slice(0, 120)}
+                    {evt.type === "plan" && (evt.plan?.summary ?? JSON.stringify(evt.plan).slice(0, 120))}
+                    {evt.type === "done" && (evt.data?.container_id ? `container: ${evt.data.container_id}` : "done")}
+                    {evt.type === "error" && (typeof evt.error === "string" ? evt.error : "error")}
                   </span>
                 </div>
               ))}
