@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Sidebar } from "@/components/Sidebar";
 import { use } from "react";
 import { MOCK_SESSIONS, MOCK_ACTION_LOG } from "@/lib/mockData";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+const WS_API = API.replace(/^http/, "ws");
 
 type SessionData = {
   id: string;
@@ -88,6 +89,8 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [copied, setCopied] = useState<number | null>(null);
+  const [liveMessages, setLiveMessages] = useState<string[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -97,13 +100,19 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           fetch(`${API}/sessions/${sessionId}/log`),
         ]);
         if (!sessRes.ok) throw new Error("not found");
-        setSession(await sessRes.json());
+        const sessData: SessionData = await sessRes.json();
+        setSession(sessData);
         if (logRes.ok) {
           const rawLog = await logRes.json();
           setLog({
             ...rawLog,
             actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
           });
+        }
+
+        // If the session is still running, open a WebSocket to stream live events
+        if (sessData.state === "running") {
+          openStream(sessionId);
         }
       } catch {
         // Fall back to mock data so the page is always visible
@@ -115,7 +124,70 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
       }
     }
     load();
+
+    return () => {
+      wsRef.current?.close();
+    };
   }, [sessionId]);
+
+  function openStream(id: string) {
+    const ws = new WebSocket(`${WS_API}/sessions/${id}/stream`);
+    wsRef.current = ws;
+
+    ws.onmessage = (ev) => {
+      try {
+        const event = JSON.parse(ev.data as string);
+        switch (event.type) {
+          case "action":
+            if (event.action) {
+              setLog((prev) => {
+                const existing = prev?.actions ?? [];
+                // Avoid duplicates (server may replay on reconnect)
+                const alreadyHas = existing.some((a) => a.index === event.action.index);
+                if (alreadyHas) return prev;
+                return {
+                  ...(prev ?? { id: 0, session_id: id, team_id: "", created_at: "" }),
+                  actions: [...existing, event.action],
+                };
+              });
+            }
+            break;
+          case "message":
+            if (event.message) {
+              setLiveMessages((m) => [...m, event.message]);
+            }
+            break;
+          case "done":
+            setSession((s) => s ? { ...s, state: "completed" } : s);
+            if (event.log) {
+              try {
+                const rawActions = typeof event.log === "string" ? JSON.parse(event.log) : event.log;
+                const actions: ActionItem[] = Array.isArray(rawActions) ? rawActions : rawActions?.actions ?? [];
+                setLog((prev) => ({
+                  ...(prev ?? { id: 0, session_id: id, team_id: "", created_at: "" }),
+                  actions,
+                }));
+              } catch {
+                // ignore parse errors
+              }
+            }
+            ws.close();
+            break;
+          case "error":
+            setSession((s) => s ? { ...s, state: "failed" } : s);
+            if (event.message) setLiveMessages((m) => [...m, `Error: ${event.message}`]);
+            ws.close();
+            break;
+        }
+      } catch {
+        // ignore non-JSON frames
+      }
+    };
+
+    ws.onerror = () => {
+      ws.close();
+    };
+  }
 
   function copyHash(hash: string, idx: number) {
     navigator.clipboard.writeText(hash);
@@ -234,6 +306,22 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           </div>
         )}
 
+        {/* Live agent messages */}
+        {liveMessages.length > 0 && (
+          <div className="rounded-sm p-4 mb-6" style={{ background: "#181818", border: "1px solid #1f2937" }}>
+            <div className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#5c6e8c" }}>
+              Agent Log
+            </div>
+            <div className="space-y-1">
+              {liveMessages.map((msg, i) => (
+                <p key={i} className="text-xs font-mono" style={{ color: msg.startsWith("Error:") ? "#f87171" : "#6b7280" }}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Action log */}
         <div>
           <h2 className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: "#4b5563" }}>
@@ -243,7 +331,15 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           {actions.length === 0 && (
             <div className="rounded-sm p-8 text-center" style={{ background: "#181818", border: "1px solid #1f2937" }}>
               <p className="text-sm" style={{ color: "#4b5563" }}>
-                {session?.state === "running" ? "Session is still running…" : "No actions recorded."}
+                {session?.state === "running" ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin" xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                    </svg>
+                    Waiting for agent actions…
+                  </span>
+                ) : "No actions recorded."}
               </p>
             </div>
           )}
