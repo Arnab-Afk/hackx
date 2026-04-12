@@ -5,11 +5,11 @@ import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
-const ACCENT = "#7c45ff";
+const ACCENT = "#e2f0d9";
 
 const TOOL_COLORS: Record<string, { text: string; bg: string }> = {
-  analyze_repo:             { text: "#7c45ff", bg: "rgba(124,69,255,0.1)" },
-  generate_deployment_plan: { text: "#7c45ff", bg: "rgba(124,69,255,0.1)" },
+  analyze_repo:             { text: "#e2f0d9", bg: "rgba(226,240,217,0.1)" },
+  generate_deployment_plan: { text: "#e2f0d9", bg: "rgba(226,240,217,0.1)" },
   create_container:         { text: "#28A745", bg: "rgba(40,167,69,0.1)" },
   setup_database:           { text: "#FFC107", bg: "rgba(255,193,7,0.1)" },
   install_packages:         { text: "#9CA3AF", bg: "rgba(107,114,128,0.1)" },
@@ -69,14 +69,14 @@ export default function AuditPage() {
   const actions: Action[] = log?.actions ?? [];
 
   return (
-    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
       <main className="flex-1 flex flex-col overflow-y-auto">
         <div className="p-8">
           <header className="flex flex-wrap justify-between items-start gap-4 mb-6">
             <div>
-              <p className="text-3xl font-black leading-tight tracking-tight" style={{ color: "#F9FAFB" }}>Audit Trail</p>
+              <p className="text-3xl font-light tracking-tight" style={{ color: "#F9FAFB" }}>Audit Trail</p>
               <p className="text-sm font-mono mt-1" style={{ color: "#6B7280" }}>
                 Immutable action log — every agent action hashed and stored on-chain
               </p>
@@ -85,7 +85,7 @@ export default function AuditPage() {
               value={sessionFilter}
               onChange={(e) => setSessionFilter(e.target.value)}
               className="rounded-lg px-3 py-2 text-sm outline-none"
-              style={{ background: "#161618", border: "1px solid #2C2C2E", color: "#E5E7EB" }}
+              style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)", color: "#E5E7EB" }}
             >
               <option value="all">All Sessions</option>
               {sessions.map((s) => (
@@ -100,7 +100,7 @@ export default function AuditPage() {
               { label: "Merkle Root", value: log?.merkle_root ? log.merkle_root.slice(0, 18) + "…" : "—" },
               { label: "Verified", value: actions.length > 0 ? "On-chain" : "—" },
             ].map((c) => (
-              <div key={c.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+              <div key={c.label} className="flex flex-col gap-2 rounded-3xl p-4" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
                 <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{c.label}</p>
                 <p className="text-sm font-bold font-mono truncate" style={{ color: c.label === "Verified" && c.value === "On-chain" ? "#28A745" : "#F9FAFB" }}>{c.value}</p>
               </div>
@@ -142,8 +142,8 @@ export default function AuditPage() {
 
                   <div
                     key={`card-${i}`}
-                    className="mb-3 rounded-xl overflow-hidden cursor-pointer"
-                    style={{ border: "1px solid #2C2C2E", background: "#161618" }}
+                    className="mb-3 rounded-3xl overflow-hidden cursor-pointer"
+                    style={{ border: "1px solid rgba(255,255,255,0.07)", background: "#1a1a1a" }}
                     onClick={() => toggle(i)}
                   >
                     <div className="flex items-center justify-between px-4 py-3">
@@ -164,11 +164,11 @@ export default function AuditPage() {
                     </div>
 
                     {isExpanded && (
-                      <div className="px-4 pb-4 flex flex-col gap-3" style={{ borderTop: "1px solid #2C2C2E" }}>
+                      <div className="px-4 pb-4 flex flex-col gap-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
                         {!!action.input && (
                           <div>
                             <p className="text-xs font-semibold mb-1" style={{ color: "#6B7280" }}>INPUT</p>
-                            <pre className="text-xs rounded-lg p-3 overflow-x-auto" style={{ background: "#0A0A0A", color: "#9CA3AF" }}>
+                            <pre className="text-xs rounded-lg p-3 overflow-x-auto" style={{ background: "#111111", color: "#9CA3AF" }}>
                               {JSON.stringify(action.input, null, 2)}
                             </pre>
                           </div>
@@ -176,7 +176,7 @@ export default function AuditPage() {
                         {!!action.result && (
                           <div>
                             <p className="text-xs font-semibold mb-1" style={{ color: "#6B7280" }}>RESULT</p>
-                            <pre className="text-xs rounded-lg p-3 overflow-x-auto" style={{ background: "#0A0A0A", color: "#9CA3AF" }}>
+                            <pre className="text-xs rounded-lg p-3 overflow-x-auto" style={{ background: "#111111", color: "#9CA3AF" }}>
                               {JSON.stringify(action.result, null, 2)}
                             </pre>
                           </div>

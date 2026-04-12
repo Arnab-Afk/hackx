@@ -1,3 +1,4 @@
+// TEST_MARKER_12345
 "use client";
 
 import Link from "next/link";
@@ -143,27 +144,32 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
 
   return (
     <aside
-      className="flex-shrink-0 w-[220px] flex flex-col"
+      className="shrink-0 w-55 flex flex-col"
       style={{
-        background: "#0a0a0b",
-        borderRight: "1px solid rgba(255,255,255,0.06)",
+        background: "#111111",
+        borderRight: "1px solid rgba(255,255,255,0.07)",
       }}
     >
       {/* Logo */}
-      <div className="px-5 pt-5 pb-4" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-bold tracking-widest text-white select-none uppercase">
-            COMPUT3
-          </span>
-          <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: "#5b5b6b" }}>
-            {mode === "provider" ? "provider" : "app"}
-          </span>
+      <div className="px-5 pt-6 pb-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl flex items-center justify-center" style={{ background: "#e2f0d9" }}>
+            <div className="w-4 h-4 rounded-full" style={{ background: "#111111", opacity: 0.8 }} />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold tracking-widest text-white select-none uppercase leading-none">
+              COMPUT3
+            </span>
+            <span className="text-[9px] font-medium uppercase tracking-wider leading-none mt-0.5" style={{ color: "#4a4a5a" }}>
+              {mode === "provider" ? "provider" : "app"}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Nav */}
       <nav className="flex flex-col gap-0.5 p-3 flex-1">
-        <p className="px-2 pt-1 pb-2 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "#3f3f50" }}>
+        <p className="px-2 pt-1 pb-2 text-[9px] font-semibold uppercase tracking-widest" style={{ color: "#3a3a4a" }}>
           {mode === "provider" ? "Provider" : "Workspace"}
         </p>
         {navItems.map(({ label, icon, href }) => {
@@ -172,15 +178,14 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
             <Link
               key={label}
               href={href}
-              className="flex items-center gap-3 px-3 py-2 text-[13px] font-medium transition-all rounded-md"
+              className="flex items-center gap-3 px-3 py-2.5 text-[13px] font-light transition-all rounded-2xl"
               style={{
-                color: active ? "#fff" : "#5a5a6e",
-                background: active ? "rgba(124,69,255,0.12)" : "transparent",
-                borderLeft: active ? "2px solid #7c45ff" : "2px solid transparent",
+                color: active ? "#111111" : "#5a5a6e",
+                background: active ? "#e2f0d9" : "transparent",
                 textDecoration: "none",
               }}
             >
-              <span style={{ color: active ? "#7c45ff" : "#3f3f50" }}>{icon}</span>
+              <span style={{ color: active ? "#111111" : "#3a3a4a" }}>{icon}</span>
               {label}
             </Link>
           );
@@ -188,11 +193,11 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
       </nav>
 
       {/* Bottom section */}
-      <div className="p-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      <div className="p-3 flex flex-col gap-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
         {/* Switch mode */}
         <Link
           href={mode === "user" ? "/provider" : "/"}
-          className="flex items-center gap-3 px-3 py-2 text-[13px] font-medium rounded-md transition-all"
+          className="flex items-center gap-3 px-3 py-2.5 text-[13px] font-light rounded-2xl transition-all hover:bg-white/5"
           style={{ color: "#5a5a6e", textDecoration: "none" }}
         >
           <IconSwitch />
@@ -202,12 +207,12 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
         {/* Wallet identity */}
         {isAuthenticated && shortAddr && (
           <div
-            className="mt-2 rounded-md p-3 flex items-center gap-3"
-            style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}
+            className="mt-2 rounded-2xl p-3 flex items-center gap-3"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}
           >
             {/* Avatar from address */}
             <div
-              className="flex-shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold"
+              className="shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold"
               style={{
                 width: 30,
                 height: 30,
@@ -228,7 +233,7 @@ export function Sidebar({ mode }: { mode: SidebarMode }) {
             <button
               onClick={logout}
               title="Sign out"
-              className="flex-shrink-0 transition-opacity hover:opacity-100 opacity-40"
+              className="shrink-0 transition-opacity hover:opacity-100 opacity-40"
               style={{ color: "#fff" }}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
