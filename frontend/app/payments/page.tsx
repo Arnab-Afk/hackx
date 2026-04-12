@@ -6,6 +6,7 @@ import { useAccount } from "wagmi";
 import { baseSepolia } from "viem/chains";
 import { useBalance } from "wagmi";
 import { apiFetch } from "@/lib/api";
+import { useAuth } from "@/lib/AuthContext";
 
 const ACCENT = "#e2f0d9";
 
@@ -29,8 +30,18 @@ const STATUS_COLORS: Record<string, { text: string; bg: string }> = {
 export default function PaymentsPage() {
   const { address } = useAccount();
   const { data: balance } = useBalance({ address, chainId: baseSepolia.id });
+  const { address: authAddress } = useAuth();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  function copyAddress() {
+    if (authAddress) {
+      navigator.clipboard.writeText(authAddress);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
 
   useEffect(() => {
     apiFetch("/payments")
@@ -58,9 +69,8 @@ export default function PaymentsPage() {
             </p>
           </header>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-8">
             {[
-              { label: "ETH Balance", value: balance ? parseFloat(balance.formatted).toFixed(4) + " ETH" : "—", accent: true },
               { label: "Total Spent", value: totalSpent + " USDC", accent: false },
               { label: "Transactions", value: loading ? "…" : String(payments.length), accent: false },
               { label: "Protocol", value: "x402", accent: false },
@@ -73,6 +83,54 @@ export default function PaymentsPage() {
           </div>
 
           <div className="rounded-3xl overflow-hidden" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
+            {/* Fund Wallet section */}
+            <div className="p-5" style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+              <p className="text-sm font-semibold mb-1" style={{ color: "#F9FAFB" }}>Fund Your Wallet</p>
+              <p className="text-xs mb-4" style={{ color: "#6B7280" }}>
+                Send USDC or ETH on Base Sepolia to your connected wallet to pay for compute sessions via x402.
+              </p>
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Wallet address display */}
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-mono flex-1 min-w-0" style={{ background: "#111111", border: "1px solid rgba(255,255,255,0.08)", color: "#9CA3AF" }}>
+                  <span className="truncate">{authAddress ?? "Connect wallet"}</span>
+                </div>
+                <button
+                  onClick={copyAddress}
+                  disabled={!authAddress}
+                  className="shrink-0 text-xs px-3 py-2 rounded-xl font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                  style={{ background: ACCENT, color: "#111111" }}
+                >
+                  {copied ? "Copied!" : "Copy Address"}
+                </button>
+                <a
+                  href="https://bridge.base.org/deposit"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-xs px-3 py-2 rounded-xl font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: "#1f2937", color: "#e2f0d9", border: "1px solid rgba(226,240,217,0.15)" }}
+                >
+                  Bridge to Base ↗
+                </a>
+                <a
+                  href="https://faucet.circle.com"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="shrink-0 text-xs px-3 py-2 rounded-xl font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: "#1f2937", color: "#9CA3AF" }}
+                >
+                  USDC Faucet ↗
+                </a>
+              </div>
+              <div className="mt-3 flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#22c55e" }} />
+                  <span className="text-xs" style={{ color: "#6B7280" }}>
+                    Balance: <span className="font-mono" style={{ color: "#F9FAFB" }}>{balance ? parseFloat(balance.formatted).toFixed(4) + " " + balance.symbol : "—"}</span>
+                  </span>
+                </div>
+                <span className="text-xs" style={{ color: "#374151" }}>Network: Base Sepolia</span>
+              </div>
+            </div>
             <div
               className="grid gap-4 px-5 py-3 text-xs font-semibold uppercase tracking-wider"
               style={{ gridTemplateColumns: "1fr 100px 80px 140px 1fr", color: "#4B5563", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "#111111" }}
