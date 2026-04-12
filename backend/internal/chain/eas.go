@@ -156,7 +156,7 @@ func SubmitAttestation(ctx context.Context, rpcURL, privateKeyHex, schemaUID str
 		Data: attestDataStruct{
 			Recipient:      gethcommon.Address{}, // no specific recipient
 			ExpirationTime: 0,
-			Revocable:      true,
+			Revocable:      false, // schema registered as non-revocable
 			RefUID:         [32]byte{},
 			Data:           innerData,
 			Value:          big.NewInt(0),
