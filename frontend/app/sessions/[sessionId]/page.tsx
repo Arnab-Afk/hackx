@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { use } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, WS_API } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
 
 type SessionData = {
@@ -31,6 +31,23 @@ type ActionLog = {
   team_id: string;
   actions: ActionItem[];
   created_at: string;
+};
+
+type LiveEvent = {
+  type: "message" | "action" | "plan" | "done" | "error";
+  data?: unknown;
+};
+
+type PlanContainer = {
+  image: string;
+  ports: string[];
+  env: Record<string, string>;
+};
+
+type PlanData = {
+  summary: string;
+  containers: PlanContainer[];
+  estimated_cost_usd?: number;
 };
 
 const toolIcons: Record<string, string> = {
@@ -78,6 +95,12 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [copied, setCopied] = useState<number | null>(null);
+  const [liveEvents, setLiveEvents] = useState<LiveEvent[]>([]);
+  const [plan, setPlan] = useState<PlanData | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [appURL, setAppURL] = useState("");
+  const wsRef = useRef<WebSocket | null>(null);
+  const liveEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -87,13 +110,18 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
           apiFetch(`/sessions/${sessionId}/log`),
         ]);
         if (!sessRes.ok) throw new Error(await sessRes.text());
-        setSession(await sessRes.json());
+        const sessData: SessionData = await sessRes.json();
+        setSession(sessData);
         if (logRes.ok) {
           const rawLog = await logRes.json();
           setLog({
             ...rawLog,
             actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
           });
+        }
+        // If still running, connect WebSocket for live events
+        if (sessData.state === "running") {
+          connectStream(sessData.id);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load session");
@@ -102,7 +130,64 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
       }
     }
     load();
+    return () => wsRef.current?.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  function connectStream(sid: string) {
+    const ws = new WebSocket(`${WS_API}/sessions/${sid}/stream`);
+    wsRef.current = ws;
+    ws.onmessage = (e) => {
+      try {
+        const evt: LiveEvent = JSON.parse(e.data);
+        setLiveEvents((prev) => [...prev, evt]);
+        if (evt.type === "plan") {
+          setPlan(evt.data as PlanData);
+        } else if (evt.type === "done") {
+          const d = evt.data as { container_id?: string };
+          if (d?.container_id) setAppURL(`https://${d.container_id}.deploy.comput3.xyz`);
+          setSession((prev) => prev ? { ...prev, state: "completed" } : prev);
+          ws.close();
+          // Reload log after completion
+          apiFetch(`/sessions/${sid}/log`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((rawLog) => {
+              if (rawLog) {
+                setLog({
+                  ...rawLog,
+                  actions: typeof rawLog.actions === "string" ? JSON.parse(rawLog.actions) : rawLog.actions ?? [],
+                });
+              }
+            })
+            .catch(() => {});
+        } else if (evt.type === "error") {
+          setSession((prev) => prev ? { ...prev, state: "failed" } : prev);
+          ws.close();
+        }
+        liveEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      } catch {
+        // ignore parse errors
+      }
+    };
+    ws.onerror = () => ws.close();
+  }
+
+  async function handleConfirm(approved: boolean) {
+    setConfirming(true);
+    try {
+      await apiFetch(`/sessions/${sessionId}/confirm`, {
+        method: "POST",
+        body: JSON.stringify({ approved }),
+      });
+      if (!approved) {
+        setSession((prev) => prev ? { ...prev, state: "failed" } : prev);
+        wsRef.current?.close();
+      }
+    } finally {
+      setConfirming(false);
+      setPlan(null);
+    }
+  }
 
   function copyHash(hash: string, idx: number) {
     navigator.clipboard.writeText(hash);
@@ -238,6 +323,136 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             >
               Verify on EAS →
             </a>
+          </div>
+        )}
+
+        {/* App URL banner (if done) */}
+        {appURL && (
+          <div
+            className="rounded-sm p-4 mb-6 flex items-center gap-3"
+            style={{ background: "#0a1a0a", border: "1px solid #14532d" }}
+          >
+            <span style={{ fontSize: 16 }}>🚀</span>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-semibold mb-0.5" style={{ color: "#22c55e" }}>App Deployed</div>
+              <a
+                href={appURL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-mono truncate hover:underline"
+                style={{ color: "#4ade80" }}
+              >
+                {appURL}
+              </a>
+            </div>
+            <a
+              href={appURL}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs px-3 py-1 rounded-sm shrink-0 transition-opacity hover:opacity-80"
+              style={{ background: "#14532d", color: "#4ade80" }}
+            >
+              Open App ↗
+            </a>
+          </div>
+        )}
+
+        {/* Plan confirmation panel */}
+        {plan && (
+          <div
+            className="rounded-sm p-5 mb-6"
+            style={{ background: "#0c0f1a", border: "1px solid #1e3a5f" }}
+          >
+            <p className="text-sm font-bold mb-3" style={{ color: "#93c5fd" }}>
+              📋 Agent Deployment Plan — Awaiting Approval
+            </p>
+            <p className="text-xs mb-4" style={{ color: "#6b7280" }}>{plan.summary}</p>
+            <div className="space-y-2 mb-4">
+              {plan.containers?.map((c, i) => (
+                <div
+                  key={i}
+                  className="rounded-sm p-3"
+                  style={{ background: "#111827", border: "1px solid #1f2937" }}
+                >
+                  <p className="text-xs font-semibold font-mono mb-1" style={{ color: "#93c5fd" }}>
+                    {c.image}
+                  </p>
+                  {c.ports?.length > 0 && (
+                    <p className="text-xs" style={{ color: "#4b5563" }}>
+                      Ports: {c.ports.join(", ")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            {plan.estimated_cost_usd != null && (
+              <p className="text-xs mb-4" style={{ color: "#6b7280" }}>
+                Estimated cost: <span style={{ color: "#f3f4f6", fontWeight: 700 }}>${plan.estimated_cost_usd.toFixed(4)} USDC</span>
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                disabled={confirming}
+                onClick={() => handleConfirm(true)}
+                className="text-xs px-4 py-2 rounded-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ background: "#e2f0d9", color: "#111111" }}
+              >
+                {confirming ? "Approving…" : "✓ Approve & Deploy"}
+              </button>
+              <button
+                disabled={confirming}
+                onClick={() => handleConfirm(false)}
+                className="text-xs px-4 py-2 rounded-sm font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+                style={{ background: "#1f2937", color: "#9ca3af" }}
+              >
+                ✗ Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Live event stream */}
+        {liveEvents.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-xs font-semibold uppercase tracking-widest mb-3" style={{ color: "#4b5563" }}>
+              Live Stream — {liveEvents.length} events
+            </h2>
+            <div
+              className="rounded-sm overflow-y-auto"
+              style={{
+                background: "#0a0a0a",
+                border: "1px solid #1f2937",
+                maxHeight: 256,
+                padding: 12,
+              }}
+            >
+              {liveEvents.map((evt, i) => (
+                <div key={i} className="flex gap-2 mb-1">
+                  <span
+                    className="text-xs font-bold shrink-0"
+                    style={{
+                      color:
+                        evt.type === "error"
+                          ? "#ef4444"
+                          : evt.type === "done"
+                          ? "#22c55e"
+                          : evt.type === "plan"
+                          ? "#93c5fd"
+                          : "#6b7280",
+                      width: 56,
+                    }}
+                  >
+                    [{evt.type}]
+                  </span>
+                  <span className="text-xs font-mono" style={{ color: "#9ca3af" }}>
+                    {typeof evt.data === "string"
+                      ? evt.data
+                      : JSON.stringify(evt.data).slice(0, 120)}
+                  </span>
+                </div>
+              ))}
+              <div ref={liveEndRef} />
+            </div>
           </div>
         )}
 
