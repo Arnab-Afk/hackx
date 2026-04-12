@@ -311,7 +311,11 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 				}
 			}
 		}
-		return s.mgr.CreateContainer(ctx, opts)
+		info, err := s.mgr.CreateContainer(ctx, opts)
+		if err == nil && info != nil {
+			s.mgr.RegisterDeploy(info.ID, info.Ports)
+		}
+		return info, err
 
 	case "install_packages":
 		id := stringField(input, "container_id")

@@ -12,6 +12,10 @@ type Config struct {
 	ScanModel   string // model for repo scanning (via proxy)
 	AgentModel  string // model for deployment agent (via proxy)
 
+	// DeployDomain is the wildcard subdomain base for deployed containers.
+	// e.g. "deploy.comput3.xyz" → containers accessible at {containerID}.deploy.comput3.xyz
+	DeployDomain string
+
 	// GitHub OAuth App — for private repo access
 	GitHubClientID      string
 	GitHubClientSecret  string
@@ -47,6 +51,8 @@ func Load() *Config {
 		AgentWalletPrivateKey:   getEnv("AGENT_WALLET_PRIVATE_KEY", ""),
 		VaultMasterSecret:       getEnv("VAULT_MASTER_SECRET", ""),
 		JWTSecret:               getEnv("JWT_SECRET", getEnv("VAULT_MASTER_SECRET", "comput3-dev-secret")),
+
+		DeployDomain: getEnv("DEPLOY_DOMAIN", ""),
 
 		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),

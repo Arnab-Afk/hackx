@@ -10,6 +10,8 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -47,9 +49,10 @@ type Server struct {
 	githubFrontendURL  string
 	jwtSecret          string
 	vaultMasterSecret  string
+	deployDomain       string // e.g. "deploy.comput3.xyz"
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL, jwtSecret, vaultMasterSecret string) http.Handler {
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL, jwtSecret, vaultMasterSecret, deployDomain string) http.Handler {
 	srv := &Server{
 		mgr:                mgr,
 		scanner:            sc,
@@ -67,11 +70,13 @@ func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, prox
 		githubFrontendURL:  githubFrontendURL,
 		jwtSecret:          jwtSecret,
 		vaultMasterSecret:  vaultMasterSecret,
+		deployDomain:       deployDomain,
 	}
 
 	authMgr := auth.NewManager()
 
 	r := chi.NewRouter()
+	r.Use(srv.subdomainProxy) // must be first — intercepts *.deploy.comput3.xyz before routing
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
@@ -719,6 +724,50 @@ func jsonResponse(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+// subdomainProxy intercepts requests whose Host matches *.{deployDomain} and
+// reverse-proxies them to the container's host port. All other requests are
+// passed through to the normal Chi router.
+func (s *Server) subdomainProxy(next http.Handler) http.Handler {
+	if s.deployDomain == "" {
+		return next // feature disabled — no domain configured
+	}
+	suffix := "." + s.deployDomain
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.Host
+		// Strip port if present (e.g. "abc.deploy.comput3.xyz:8081" → "abc.deploy.comput3.xyz")
+		if i := strings.LastIndex(host, ":"); i != -1 {
+			host = host[:i]
+		}
+		if !strings.HasSuffix(host, suffix) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Extract container ID: "abc123def456.deploy.comput3.xyz" → "abc123def456"
+		containerID := strings.TrimSuffix(host, suffix)
+		if containerID == "" {
+			http.Error(w, "missing container ID in subdomain", http.StatusBadRequest)
+			return
+		}
+		hostPort, ok := s.mgr.LookupDeployPort(containerID)
+		if !ok {
+			http.Error(w, "no deployment found for "+containerID, http.StatusNotFound)
+			return
+		}
+		target, err := url.Parse("http://localhost:" + hostPort)
+		if err != nil {
+			http.Error(w, "internal routing error", http.StatusInternalServerError)
+			return
+		}
+		log.Printf("[subdomain-proxy] %s → localhost:%s%s", host, hostPort, r.URL.Path)
+		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+			log.Printf("[subdomain-proxy] upstream error for %s: %v", containerID, err)
+			http.Error(w, "container unreachable: "+err.Error(), http.StatusBadGateway)
+		}
+		proxy.ServeHTTP(w, r)
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

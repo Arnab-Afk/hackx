@@ -64,9 +64,11 @@ type HealthStatus struct {
 }
 
 type Manager struct {
-	client *dockerclient.Client
-	wsMu   sync.RWMutex
-	wsReg  map[string]*WorkspaceInfo // containerID (short or full) → info
+	client    *dockerclient.Client
+	wsMu      sync.RWMutex
+	wsReg     map[string]*WorkspaceInfo // containerID (short or full) → info
+	deployMu  sync.RWMutex
+	deployReg map[string]map[string]string // containerID → (containerPort/proto → hostPort)
 }
 
 func NewManager(host string) (*Manager, error) {
@@ -84,7 +86,11 @@ func NewManager(host string) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("docker client: %w", err)
 	}
-	return &Manager{client: cli, wsReg: make(map[string]*WorkspaceInfo)}, nil
+	return &Manager{
+		client:    cli,
+		wsReg:     make(map[string]*WorkspaceInfo),
+		deployReg: make(map[string]map[string]string),
+	}, nil
 }
 
 // RegisterWorkspace stores workspace SSH credentials in memory so the SSH
@@ -106,6 +112,31 @@ func (m *Manager) GetWorkspaceInfo(containerID string) (*WorkspaceInfo, bool) {
 	defer m.wsMu.RUnlock()
 	ws, ok := m.wsReg[key]
 	return ws, ok
+}
+
+// RegisterDeploy records the host-port mapping for a deployed container so the
+// subdomain proxy middleware can route traffic to it.
+func (m *Manager) RegisterDeploy(containerID string, ports map[string]string) {
+	m.deployMu.Lock()
+	defer m.deployMu.Unlock()
+	m.deployReg[containerID] = ports
+}
+
+// LookupDeployPort returns the primary host port for a deployed container.
+// It returns the first non-empty host port found in the port map.
+func (m *Manager) LookupDeployPort(containerID string) (string, bool) {
+	m.deployMu.RLock()
+	defer m.deployMu.RUnlock()
+	ports, ok := m.deployReg[containerID]
+	if !ok {
+		return "", false
+	}
+	for _, hp := range ports {
+		if hp != "" {
+			return hp, true
+		}
+	}
+	return "", false
 }
 
 // CreateContainer pulls the image if needed and starts a container for the team.

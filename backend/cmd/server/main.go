@@ -52,6 +52,7 @@ func main() {
 		cfg.EASSchemaUID, cfg.AgentWalletPrivateKey,
 		cfg.GitHubClientID, cfg.GitHubClientSecret, cfg.GitHubCallbackURL, cfg.GitHubFrontendURL,
 		cfg.JWTSecret, cfg.VaultMasterSecret,
+		cfg.DeployDomain,
 	)
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
