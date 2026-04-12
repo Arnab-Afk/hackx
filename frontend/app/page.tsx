@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { WalletButton } from "@/components/WalletButton";
 import { useBalance } from "wagmi";
@@ -10,12 +11,12 @@ import { useAuth } from "@/lib/AuthContext";
 import { MoreHorizontal, ChevronUp, ChevronDown } from "lucide-react";
 
 type Container = {
-  id: string;
-  name: string;
-  image: string;
-  status: string;
-  ports: Record<string, string[]> | null;
-  created: string;
+  ID: string;
+  Name: string;
+  Image?: string;
+  Status: string;
+  Ports: Record<string, string> | null;
+  Created?: string;
 };
 type SessionSummary = {
   id: string;
@@ -36,12 +37,20 @@ function useClock() {
   return time;
 }
 export default function Home() {
-  const { address, isConnected, teamId, teamName, isNewAccount } = useAuth();
+  const { address, isAuthenticated, isConnected, teamId, teamName, isNewAccount, hydrated } = useAuth();
+  const router = useRouter();
   const { data: balance } = useBalance({ address: address as `0x${string}` | undefined, chainId: baseSepolia.id });
   const clock = useClock();
   const [containers, setContainers] = useState<Container[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loadingContainers, setLoadingContainers] = useState(false);
+
+  // Auth guard — redirect to /signin if not authenticated
+  useEffect(() => {
+    if (hydrated && !isAuthenticated) {
+      router.replace("/signin");
+    }
+  }, [hydrated, isAuthenticated, router]);
   useEffect(() => {
     if (!teamId) return;
     setLoadingContainers(true);
@@ -55,7 +64,7 @@ export default function Home() {
       .then((s) => { if (Array.isArray(s)) setSessions(s); })
       .catch(() => {});
   }, [teamId]);
-  const running = containers.filter((c) => c.status === "running").length;
+  const running = containers.filter((c) => c.Status?.toLowerCase() === "running").length;
   const completed = sessions.filter((s) => s.state === "completed").length;
   const successRate = sessions.length > 0 ? Math.round((completed / sessions.length) * 100) : 0;
   const seedBars = [40, 60, 45, 70, 85, 95, 80, 65];
@@ -68,6 +77,16 @@ export default function Home() {
   }));
   const todayIdx = (new Date().getDay() + 6) % 7;
   const maxDay = Math.max(...days.map((d) => d.val), 1);
+
+  // Blank screen while resolving auth / redirecting
+  if (!hydrated || !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#111111" }}>
+        <span className="inline-block h-8 w-8 rounded-full border-2 border-white/20 border-t-white animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#f9fafb" }}>
       <Sidebar mode="user" />

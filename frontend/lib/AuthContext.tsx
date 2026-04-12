@@ -58,6 +58,7 @@ type AuthState = {
   token: string | undefined;
   isAuthenticated: boolean;
   isAuthenticating: boolean;
+  hydrated: boolean;
   teamId: string | undefined;
   teamName: string | undefined;
   isNewAccount: boolean;
@@ -73,6 +74,7 @@ const DEFAULT: AuthState = {
   token: undefined,
   isAuthenticated: false,
   isAuthenticating: false,
+  hydrated: false,
   teamId: undefined,
   teamName: undefined,
   isNewAccount: false,
@@ -114,6 +116,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [isNewAccount, setIsNewAccount] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Mark as hydrated once on client mount — prevents false redirects during SSR
+  useEffect(() => { setHydrated(true); }, []);
 
   const isAuthenticated = isTokenValid(token);
 
@@ -173,11 +179,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE.WALLET, address.toLowerCase());
 
     try {
-      const nonceRes = await fetch(`${API}/auth/nonce?wallet=${encodeURIComponent(address)}`);
+      const nonceRes = await fetch(`${API}/auth/nonce`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ address }),
+      });
       if (!nonceRes.ok) return;
       const { nonce } = await nonceRes.json();
 
-      const message = `Sign in to COMPUT3\n\nAddress: ${address}\nNonce: ${nonce}`;
+      const message = nonce;
       const signature = await signMessageAsync({ message });
 
       const verifyRes = await fetch(`${API}/auth/verify`, {
@@ -247,6 +257,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         isAuthenticated,
         isAuthenticating,
+        hydrated,
         teamId,
         teamName,
         isNewAccount,
