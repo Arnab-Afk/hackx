@@ -126,9 +126,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // ----- fetchAccount — called after getting a valid token ---------------
   const fetchAccount = useCallback(async (t: string) => {
     try {
-      const res = await fetch(`${API}/account`, {
-        headers: { Authorization: `Bearer ${t}` },
-      });
+      // Extract wallet from the token (format: wallet|exp|sig) to avoid
+      // sending an Authorization header which is blocked by the upstream CORS proxy.
+      const wallet = t.split("|")[0];
+      const url = wallet
+        ? `${API}/account?wallet=${encodeURIComponent(wallet)}`
+        : `${API}/account`;
+      const res = await fetch(url);
       if (!res.ok) return;
       const account = await res.json();
       const defaultName = account.name?.startsWith("account-");
