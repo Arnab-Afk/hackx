@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
-import { API, authHeaders } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 
 export default function OnboardingPage() {
   const { isAuthenticated, isAuthenticating, address, teamId, teamName, setTeam } = useAuth();
@@ -39,9 +39,8 @@ export default function OnboardingPage() {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`${API}/account`, {
+      const res = await apiFetch(`/account`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ name: trimmed }),
       });
       if (!res.ok) {

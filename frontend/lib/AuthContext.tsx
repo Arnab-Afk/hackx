@@ -11,7 +11,11 @@ import {
 } from "react";
 import { useAccount, useSignMessage } from "wagmi";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+// Route auth calls through the Next.js proxy on the client to avoid CORS
+const API =
+  typeof window !== "undefined"
+    ? "/api/backend"
+    : (process.env.NEXT_PUBLIC_API_URL ?? "https://backendapi.comput3.xyz");
 
 // -------------------------------------------------------------------
 // Token helpers — supports both standard JWT and custom wallet|exp|hmac

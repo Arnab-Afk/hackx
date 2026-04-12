@@ -1,7 +1,15 @@
 import { STORAGE } from "@/lib/AuthContext";
 
-export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
-export const WS_API = API.replace(/^http/, "ws");
+// In-browser: route through the Next.js rewrite proxy (/api/backend/...)
+// so the browser never crosses origins → no CORS preflight issues.
+// On the server (SSR/API routes): call the backend directly.
+export const API =
+  typeof window !== "undefined"
+    ? "/api/backend"
+    : (process.env.NEXT_PUBLIC_API_URL ?? "https://backendapi.comput3.xyz");
+
+// WebSocket still needs the real URL (rewrites don't cover ws://)
+export const WS_API = (process.env.NEXT_PUBLIC_API_URL ?? "https://backendapi.comput3.xyz").replace(/^http/, "ws");
 
 export function getToken(): string {
   if (typeof window === "undefined") return "";
