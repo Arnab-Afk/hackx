@@ -299,7 +299,7 @@ export default function DeployPage() {
   ];
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: BG, fontFamily: "var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div style={{ display: "flex", height: "100vh", background: BG, fontFamily: 'Inter, var(--font-inter), "Inter Fallback", sans-serif', fontSize: 20, color: "#E5E7EB" }}>
       <Sidebar mode="user" />
 
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflowY: "auto" }}>
