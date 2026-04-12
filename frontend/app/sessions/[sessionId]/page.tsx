@@ -5,6 +5,7 @@ import Link from "next/link";
 import { use } from "react";
 import { apiFetch, WS_API } from "@/lib/api";
 import { Sidebar } from "@/components/Sidebar";
+import { useAuth } from "@/lib/AuthContext";
 
 type SessionData = {
   id: string;
@@ -89,6 +90,7 @@ function formatDuration(start: string, end: string) {
 
 export default function SessionPage({ params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = use(params);
+  const { isAuthenticated, isConnected } = useAuth();
   const [session, setSession] = useState<SessionData | null>(null);
   const [log, setLog] = useState<ActionLog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,6 +105,16 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
   const liveEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      // Don't fetch until auth is ready; keep loading=true only if wallet is connected
+      // (auth is in progress), otherwise stop loading and show connect prompt.
+      if (!isConnected) setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
     async function load() {
       try {
         const [sessRes, logRes] = await Promise.all([
@@ -132,7 +144,7 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
     load();
     return () => wsRef.current?.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]);
+  }, [sessionId, isAuthenticated]);
 
   function connectStream(sid: string) {
     const ws = new WebSocket(`${WS_API}/sessions/${sid}/stream`);
@@ -208,7 +220,19 @@ export default function SessionPage({ params }: { params: Promise<{ sessionId: s
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
           </svg>
-          Loading session…
+          {isConnected && !isAuthenticated ? "Authenticating…" : "Loading session…"}
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: "#111111", color: "#6b7280" }}>
+        <div className="text-center">
+          <p className="font-bold mb-2" style={{ color: "#f3f4f6" }}>Wallet not connected</p>
+          <p className="text-sm opacity-60 mb-4">Connect your wallet to view session details.</p>
+          <Link href="/" className="text-sm underline" style={{ color: "#e2f0d9" }}>← Back to dashboard</Link>
         </div>
       </div>
     );

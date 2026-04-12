@@ -14,21 +14,28 @@ import { useAccount, useSignMessage } from "wagmi";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 // -------------------------------------------------------------------
-// Token helpers — custom format: wallet|exp_unix|hmac_hex
+// Token helpers — supports both standard JWT and custom wallet|exp|hmac
 // -------------------------------------------------------------------
-function parseCustomToken(token: string): { wallet: string; exp: number } | null {
-  const parts = token.split("|");
-  if (parts.length !== 3) return null;
-  const exp = parseInt(parts[1], 10);
-  if (isNaN(exp)) return null;
-  return { wallet: parts[0], exp };
-}
-
 function isTokenValid(token: string | undefined): boolean {
   if (!token) return false;
-  const parsed = parseCustomToken(token);
-  if (!parsed) return false;
-  return parsed.exp * 1000 > Date.now();
+  // Standard JWT: header.payload.signature
+  if (token.includes(".") && token.split(".").length === 3) {
+    try {
+      const payload = token.split(".")[1];
+      const decoded = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+      if (!decoded.exp) return true; // no expiry claim = treat as valid
+      return decoded.exp * 1000 > Date.now();
+    } catch {
+      return false;
+    }
+  }
+  // Legacy custom format: wallet|exp_unix|hmac_hex
+  const parts = token.split("|");
+  if (parts.length === 3) {
+    const exp = parseInt(parts[1], 10);
+    return !isNaN(exp) && exp * 1000 > Date.now();
+  }
+  return false;
 }
 
 // -------------------------------------------------------------------
@@ -84,6 +91,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { address, isConnected } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const authInFlight = useRef(false);
+  // Tracks address for which auto-auth was already triggered this session,
+  // preventing repeated MetaMask popups when wagmi re-renders.
+  const autoAuthTriggeredFor = useRef<string>("");
 
   // Initialize from localStorage synchronously (runs only on client)
   const [token, setTokenState] = useState<string | undefined>(() => {
@@ -150,6 +160,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setTeamIdState(undefined);
     setTeamNameState(undefined);
     setIsNewAccount(false);
+    autoAuthTriggeredFor.current = "";
   }, []);
 
   // ----- authenticate ----------------------------------------------------
@@ -162,11 +173,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem(STORAGE.WALLET, address.toLowerCase());
 
     try {
-      const nonceRes = await fetch(`${API}/auth/nonce`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address }),
-      });
+      const nonceRes = await fetch(`${API}/auth/nonce?wallet=${encodeURIComponent(address)}`);
       if (!nonceRes.ok) return;
       const { nonce } = await nonceRes.json();
 
@@ -176,7 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const verifyRes = await fetch(`${API}/auth/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ address, signature }),
+        body: JSON.stringify({ address, nonce, signature }),
       });
       if (!verifyRes.ok) return;
       const { token: t } = await verifyRes.json();
@@ -197,7 +204,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ----- Auto-authenticate on wallet connect / change --------------------
   useEffect(() => {
-    if (!isConnected || !address) return;
+    if (!isConnected || !address) {
+      // Reset tracker when wallet disconnects so re-connecting works
+      autoAuthTriggeredFor.current = "";
+      return;
+    }
 
     const storedWallet = localStorage.getItem(STORAGE.WALLET);
     const walletMatches = storedWallet === address.toLowerCase();
@@ -205,8 +216,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const storedTeamId = localStorage.getItem(STORAGE.TEAM_ID);
 
     if (!walletMatches || !isTokenValid(storedToken ?? undefined)) {
-      // Need fresh auth
-      authenticate();
+      // Only trigger MetaMask once per address; wagmi can re-render this
+      // effect many times during the connection handshake.
+      if (autoAuthTriggeredFor.current !== address.toLowerCase()) {
+        autoAuthTriggeredFor.current = address.toLowerCase();
+        authenticate();
+      }
     } else if (storedToken && !token) {
       // Wallet matches and token is valid — just hydrate state
       setTokenState(storedToken);
