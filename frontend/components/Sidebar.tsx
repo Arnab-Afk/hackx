@@ -100,6 +100,14 @@ function IconSettings() {
     </svg>
   );
 }
+function IconSessions() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="2" y="3" width="20" height="14" rx="2"/>
+      <polyline points="8 21 12 17 16 21"/>
+    </svg>
+  );
+}
 function IconSwitch() {
   return (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -113,6 +121,7 @@ function IconSwitch() {
 
 const USER_NAV = [
   { label: "Dashboard",    icon: <IconDashboard />,   href: "/" },
+  { label: "Sessions",     icon: <IconSessions />,    href: "/sessions" },
   { label: "Pipelines",    icon: <IconPipeline />,    href: "/deploy" },
   { label: "Secrets",      icon: <IconKey />,         href: "/secrets" },
   { label: "Attestations", icon: <IconAttestation />, href: "/attestations" },
