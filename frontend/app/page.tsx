@@ -72,7 +72,7 @@ export default function Home() {
     <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#f9fafb" }}>
       <Sidebar mode="user" />
       <main className="flex-1 flex flex-col overflow-y-auto">
-        <div className="px-8 py-8 flex flex-col gap-8">
+        <div className="px-8 py-8 flex flex-col gap-6">
 
           {/* ── Header ── */}
           <header className="flex items-center justify-between">
@@ -81,11 +81,6 @@ export default function Home() {
               <div className="text-xl font-light tracking-tight">
                 {clock} <span className="text-[11px] text-gray-500 ml-1 uppercase tracking-wider">Time</span>
               </div>
-              {isConnected && balance && (
-                <div className="px-3 py-1.5 rounded-full text-xs font-mono border border-white/10 text-gray-400">
-                  {parseFloat(balance.formatted).toFixed(4)} ETH
-                </div>
-              )}
               <WalletButton />
               <Link
                 href="/deploy"
@@ -124,10 +119,105 @@ export default function Home() {
             </Link>
           )}
 
-          {/* ── Main dashboard grid ── */}
+          {/* ── Stat strip ── */}
+          <div className="grid grid-cols-4 gap-4">
+            {/* Containers */}
+            <div className="rounded-2xl p-6 border border-white/5 flex flex-col gap-4" style={{ background: "#1a1a1a" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Containers</span>
+                <div className="flex items-center gap-1.5">
+                  <div className={`w-1.5 h-1.5 rounded-full ${running > 0 ? "bg-green-400" : "bg-gray-600"}`} />
+                  <span className="text-[10px] text-gray-600">{running > 0 ? "Live" : "Idle"}</span>
+                </div>
+              </div>
+              <div>
+                <div className="text-4xl font-light tracking-tight">
+                  {running}<span className="text-2xl text-gray-600">/{containers.length}</span>
+                </div>
+                <div className="text-[10px] text-gray-600 mt-1">running / total</div>
+              </div>
+              <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${containers.length > 0 ? Math.round((running / containers.length) * 100) : 0}%`, background: "#e2f0d9" }} />
+              </div>
+            </div>
+
+            {/* Pipelines */}
+            <div className="rounded-2xl p-6 border border-white/5 flex flex-col gap-4" style={{ background: "#1a1a1a" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Pipelines</span>
+                <Link href="/sessions" className="text-[10px] text-gray-600 hover:text-gray-300 transition-colors" style={{ textDecoration: "none" }}>View all →</Link>
+              </div>
+              <div>
+                <div className="text-4xl font-light tracking-tight">
+                  {completed}<span className="text-2xl text-gray-600">/{sessions.length}</span>
+                </div>
+                <div className="text-[10px] text-gray-600 mt-1">completed / total</div>
+              </div>
+              <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700" style={{ width: `${sessions.length > 0 ? Math.round((completed / sessions.length) * 100) : 0}%`, background: "rgba(255,255,255,0.3)" }} />
+              </div>
+            </div>
+
+            {/* Success rate */}
+            <div className="rounded-2xl p-6 border border-white/5 flex flex-col gap-4" style={{ background: "#1a1a1a" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Success Rate</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full border"
+                  style={{
+                    color: successRate >= 80 ? "#22c55e" : successRate >= 50 ? "#f59e0b" : "#4b5563",
+                    borderColor: successRate >= 80 ? "#22c55e44" : successRate >= 50 ? "#f59e0b44" : "#4b556344",
+                  }}
+                >
+                  {successRate >= 80 ? "Healthy" : successRate >= 50 ? "Fair" : "—"}
+                </span>
+              </div>
+              <div>
+                <div className="text-4xl font-light tracking-tight">
+                  {successRate}<span className="text-2xl text-gray-600">%</span>
+                </div>
+                <div className="text-[10px] text-gray-600 mt-1">{completed} of {sessions.length} succeeded</div>
+              </div>
+              <div className="h-0.5 bg-white/5 rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-700"
+                  style={{ width: `${successRate}%`, background: successRate >= 80 ? "#22c55e" : successRate >= 50 ? "#f59e0b" : "rgba(255,255,255,0.2)" }} />
+              </div>
+            </div>
+
+            {/* Balance */}
+            <div className="rounded-2xl p-6 flex flex-col gap-3 text-black" style={{ background: "#e2f0d9" }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] opacity-50 uppercase tracking-wider">Wallet Balance</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(0,0,0,0.08)" }}>
+                  Base Sepolia
+                </span>
+              </div>
+              <div>
+                <div className="text-4xl font-light tracking-tight">
+                  {balance ? parseFloat(balance.formatted).toFixed(3) : (isConnected ? "…" : "—")}
+                  <span className="text-lg opacity-40 ml-1.5">ETH</span>
+                </div>
+                <div className="text-[10px] opacity-50 mt-1 font-mono">
+                  {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : "Not connected"}
+                </div>
+              </div>
+              {isConnected && (!balance || parseFloat(balance.formatted) < 0.01) && (
+                <a
+                  href="https://www.coinbase.com/faucets/base-ethereum-goerli-faucet"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] font-semibold opacity-50 hover:opacity-100 transition-opacity"
+                  style={{ textDecoration: "none", marginTop: "auto" }}
+                >
+                  Get testnet ETH →
+                </a>
+              )}
+            </div>
+          </div>
+
+          {/* ── Main grid ── */}
           <div className="grid grid-cols-12 gap-5">
 
-            {/* Resource Activity — spans 7 cols */}
+            {/* Resource Activity — 7 cols */}
             <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 border border-white/5" style={{ background: "#1a1a1a" }}>
               <div className="flex justify-between items-start mb-10">
                 <h2 className="text-xl font-light">Resource activity</h2>
@@ -140,7 +230,6 @@ export default function Home() {
                 </Link>
               </div>
               <div className="grid grid-cols-3 gap-8">
-                {/* Containers */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center text-xs text-gray-400">
                     <span className="flex items-center gap-1">Containers <ChevronUp size={12} /></span>
@@ -156,7 +245,6 @@ export default function Home() {
                     <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">running / total</div>
                   </div>
                 </div>
-                {/* Pipelines */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center text-xs text-gray-400">
                     <span className="flex items-center gap-1">Pipelines <ChevronDown size={12} /></span>
@@ -172,7 +260,6 @@ export default function Home() {
                     <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">done / total</div>
                   </div>
                 </div>
-                {/* Compute */}
                 <div className="space-y-4">
                   <div className="flex justify-between items-center text-xs text-gray-400">
                     <span className="flex items-center gap-1">Compute <ChevronDown size={12} /></span>
@@ -191,127 +278,105 @@ export default function Home() {
               </div>
             </div>
 
-            {/* Workspaces — 3 cols */}
-            <div className="col-span-12 lg:col-span-3 rounded-3xl p-8 border border-white/5 relative overflow-hidden" style={{ background: "#1a1a1a" }}>
-              <div className="flex justify-between items-start mb-4">
-                <h2 className="text-xl font-light">Workspaces</h2>
-                <MoreHorizontal size={18} className="text-gray-500 cursor-pointer" />
-              </div>
-              <div className="flex justify-between items-center mb-6">
-                <div className="text-xs text-gray-400">Network <span className="text-gray-200">Base Sepolia</span></div>
-                <div className="w-10 h-5 rounded-full p-0.5 flex items-center cursor-pointer" style={{ background: "#e2f0d9" }}>
-                  <div className="w-4 h-4 rounded-full ml-auto" style={{ background: "#111111" }} />
+            {/* Workspaces — 5 cols */}
+            <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 border border-white/5 flex flex-col" style={{ background: "#1a1a1a" }}>
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <h2 className="text-xl font-light">Workspaces</h2>
+                  <p className="text-xs text-gray-500 mt-1">Network · <span className="text-gray-300">Base Sepolia</span></p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <span className="text-[10px] text-gray-500">Online</span>
                 </div>
               </div>
-              <div className="h-36 w-full relative mb-6">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <svg viewBox="0 0 200 120" className="w-full h-full" style={{ opacity: 0.4 }}>
-                    <path d="M40,100 L160,100 L180,70 L60,70 Z" fill="none" stroke="#e2f0d9" strokeWidth="0.5" />
-                    <path d="M40,100 L40,40 L60,10 L180,10 L180,70" fill="none" stroke="#e2f0d9" strokeWidth="0.5" />
-                    <line x1="160" y1="100" x2="160" y2="40" stroke="#e2f0d9" strokeWidth="0.5" />
-                    <line x1="180" y1="10" x2="160" y2="40" stroke="#e2f0d9" strokeWidth="0.5" />
-                    <line x1="60" y1="70" x2="60" y2="10" stroke="#e2f0d9" strokeWidth="0.5" />
-                    <rect x="80" y="42" width="40" height="26" fill="none" stroke="#e2f0d9" strokeWidth="0.5" />
-                    <rect x="82" y="44" width="36" height="22" fill="#e2f0d9" fillOpacity="0.08" />
-                    {running > 0 && <circle cx="100" cy="55" r="4" fill="#e2f0d9" opacity="0.7" />}
-                  </svg>
-                </div>
-                <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(to top, #1a1a1a 5%, transparent 60%)" }} />
+
+              <div className="flex-1 w-full relative my-4" style={{ minHeight: 110 }}>
+                <svg viewBox="0 0 300 130" className="w-full h-full" style={{ opacity: 0.45 }}>
+                  <path d="M50,110 L220,110 L260,75 L90,75 Z" fill="none" stroke="#e2f0d9" strokeWidth="0.6" />
+                  <path d="M50,110 L50,38 L90,8 L260,8 L260,75" fill="none" stroke="#e2f0d9" strokeWidth="0.6" />
+                  <line x1="220" y1="110" x2="220" y2="38" stroke="#e2f0d9" strokeWidth="0.6" />
+                  <line x1="260" y1="8" x2="220" y2="38" stroke="#e2f0d9" strokeWidth="0.6" />
+                  <line x1="90" y1="75" x2="90" y2="8" stroke="#e2f0d9" strokeWidth="0.6" />
+                  <rect x="118" y="38" width="72" height="32" fill="none" stroke="#e2f0d9" strokeWidth="0.5" rx="2" />
+                  <rect x="120" y="40" width="68" height="28" fill="#e2f0d9" fillOpacity="0.07" rx="1" />
+                  {running > 0 && <circle cx="154" cy="54" r="5" fill="#e2f0d9" opacity="0.8" />}
+                  {running > 0 && <circle cx="154" cy="54" r="10" fill="none" stroke="#e2f0d9" strokeWidth="0.5" opacity="0.35" />}
+                </svg>
+                <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(to top, #1a1a1a 5%, transparent 55%)" }} />
               </div>
-              <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                <span className="text-xs text-gray-400">Active</span>
-                <div className="flex items-center gap-3">
-                  <div className="w-16 h-1.5 rounded-full overflow-hidden bg-white/10">
-                    <div style={{ width: `${containers.length > 0 ? Math.round((running / containers.length) * 100) : 0}%`, height: "100%", background: "#e2f0d9" }} />
+
+              <div className="mt-auto space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">Running</span>
+                  <div className="flex items-center gap-2">
+                    <div className="w-24 h-0.5 bg-white/10 rounded-full overflow-hidden">
+                      <div style={{ width: `${containers.length > 0 ? Math.round((running / containers.length) * 100) : 0}%`, height: "100%", background: "#e2f0d9" }} />
+                    </div>
+                    <span className="text-gray-300 font-medium w-4 text-right">{running}</span>
                   </div>
-                  <span className="text-lg font-light">{running}</span>
                 </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-gray-500">Total containers</span>
+                  <span className="text-gray-300 font-medium">{containers.length}</span>
+                </div>
+                <Link
+                  href="/deploy"
+                  className="flex items-center justify-center w-full py-2.5 rounded-xl text-xs font-medium border border-white/10 text-gray-400 hover:border-white/20 hover:text-gray-200 transition-all mt-1"
+                  style={{ textDecoration: "none" }}
+                >
+                  + New workspace
+                </Link>
               </div>
             </div>
+          </div>
 
-            {/* Tips — 2 cols */}
-            <div className="col-span-12 lg:col-span-2 rounded-3xl p-8 border border-white/5" style={{ background: "#1a1a1a" }}>
-              <h2 className="text-xl font-light mb-2">Tips</h2>
-              <p className="text-[10px] text-gray-500 mb-8 uppercase tracking-widest">For your workspace</p>
-              <div className="space-y-4">
-                <div className="p-4 rounded-2xl text-black" style={{ background: "#e2f0d9" }}>
-                  <div className="text-sm font-medium leading-snug mb-2">
-                    {isNewAccount ? "Launch your first pipeline to get started" : "Scale with trusted providers on-chain"}
-                  </div>
-                  <div className="text-[10px] opacity-60 uppercase tracking-tighter">Recommendation</div>
-                </div>
-                <div className="p-4 rounded-2xl bg-white/5">
-                  <div className="text-sm font-light text-gray-300 leading-snug mb-2">Encrypt secrets before deployment</div>
-                  <div className="text-[10px] text-gray-500 uppercase tracking-tighter">Security tip</div>
-                </div>
-              </div>
-            </div>
+          {/* ── Second row ── */}
+          <div className="grid grid-cols-12 gap-5">
 
-            {/* Balance — sage, 2 cols */}
-            <div className="col-span-12 lg:col-span-2 rounded-3xl p-8 text-black flex flex-col justify-between" style={{ background: "#e2f0d9", minHeight: 220 }}>
-              <div className="flex justify-between items-start">
-                <h2 className="text-xl font-medium tracking-tight">Balance</h2>
-                <MoreHorizontal size={18} className="opacity-40" />
+            {/* Pipeline Report — 5 cols */}
+            <div className="col-span-12 lg:col-span-5 rounded-3xl p-8 border border-white/5 flex flex-col" style={{ background: "#1a1a1a" }}>
+              <div className="flex justify-between items-start mb-2">
+                <h2 className="text-xl font-light">Pipeline report</h2>
+                <button className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/10 text-[10px] uppercase text-gray-500">
+                  Week <ChevronDown size={9} />
+                </button>
               </div>
-              <div>
-                <div className="text-[11px] opacity-60 mb-1">ETH on Base Sepolia</div>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-5xl font-light tracking-tighter">
-                    {balance ? parseFloat(balance.formatted).toFixed(3) : "–"}
-                  </span>
-                  <span className="text-xs opacity-60 font-medium">ETH</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Pipeline Report — 4 cols */}
-            <div className="col-span-12 lg:col-span-4 rounded-3xl p-8 border border-white/5 flex flex-col justify-between" style={{ background: "#1a1a1a" }}>
-              <div>
-                <div className="flex justify-between items-start mb-2">
-                  <h2 className="text-xl font-light">Pipeline report</h2>
-                  <button className="flex items-center gap-1.5 px-3 py-1 rounded-full border border-white/10 text-[10px] uppercase text-gray-500">
-                    Week <ChevronDown size={9} />
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500 mb-8">Deployment activity by day</p>
-              </div>
-              <div className="flex items-end justify-between h-36 px-2 relative">
+              <p className="text-xs text-gray-500 mb-6">Deployment activity by day</p>
+              <div className="flex-1 flex items-end justify-between px-1 gap-1" style={{ minHeight: 120 }}>
                 {days.map((d, i) => {
                   const barH = Math.max(6, Math.round((d.val / maxDay) * 100));
                   const isToday = i === todayIdx;
                   return (
-                    <div key={i} className="flex flex-col items-center gap-3 flex-1">
-                      <div className="text-[10px] text-gray-500 flex items-center gap-0.5">
-                        {d.day} {i < 5 ? <ChevronUp size={8} /> : <ChevronDown size={8} />}
-                      </div>
-                      <div className="text-[10px] text-gray-400 mb-1">
-                        {d.val}
-                        <span className="text-[8px] text-gray-600 block text-center">jobs</span>
-                      </div>
-                      <div className="w-full px-0.5">
+                    <div key={i} className="flex flex-col items-center gap-2 flex-1">
+                      <div className="text-[9px] text-gray-600">{d.val}</div>
+                      <div className="w-full">
                         <div
                           className="w-full rounded-sm transition-all duration-500"
                           style={{ height: `${barH}px`, background: isToday ? "#e2f0d9" : "rgba(255,255,255,0.1)" }}
                         />
                       </div>
+                      <div className="text-[9px] text-gray-500">{d.day}</div>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Deployment Health — sage, 6 cols */}
-            <div className="col-span-12 lg:col-span-6 rounded-3xl p-8 text-black relative" style={{ background: "#e2f0d9" }}>
-              <h2 className="text-xl font-medium tracking-tight mb-1">Deployment health</h2>
-              <p className="text-xs opacity-60 mb-10">Pipeline success &amp; failure rate</p>
-              <div className="flex items-end justify-between">
-                <div className="space-y-1">
-                  <div className="text-7xl font-light tracking-tighter">{successRate}%</div>
-                  <div className="text-[10px] font-medium opacity-60 uppercase">
-                    {completed} of {sessions.length} succeeded
-                  </div>
+            {/* Deployment Health — 7 cols */}
+            <div className="col-span-12 lg:col-span-7 rounded-3xl p-8 text-black relative" style={{ background: "#e2f0d9" }}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className="text-xl font-medium tracking-tight">Deployment health</h2>
+                  <p className="text-xs opacity-60 mt-1">Pipeline success &amp; failure rate</p>
                 </div>
-                <div className="flex-1 max-w-sm pb-4 ml-10">
+                <span className="text-[10px] font-medium opacity-40 uppercase tracking-wider mt-1">
+                  {completed} of {sessions.length} succeeded
+                </span>
+              </div>
+              <div className="flex items-end justify-between mt-6">
+                <div className="text-7xl font-light tracking-tighter">{successRate}%</div>
+                <div className="flex-1 max-w-xs pb-4 ml-10">
                   <div className="relative">
                     <div className="absolute h-px w-full top-4" style={{ background: "rgba(0,0,0,0.12)" }} />
                     <div className="flex justify-between relative z-10">
@@ -334,23 +399,27 @@ export default function Home() {
                 </div>
               </div>
               {sessions.length > 0 ? (
-                <div className="mt-8 pt-6 border-t border-black/10">
-                  <div className="flex gap-3 overflow-x-auto pb-1">
+                <div className="mt-6 pt-5 border-t border-black/10">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[10px] font-medium opacity-40 uppercase tracking-wider">Recent sessions</span>
+                    <Link href="/sessions" className="text-[10px] font-semibold opacity-50 hover:opacity-100 transition-opacity" style={{ textDecoration: "none" }}>
+                      View all →
+                    </Link>
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
                     {sessions.slice(0, 5).map((s) => (
                       <Link
                         key={s.id}
                         href={`/sessions/${s.id}`}
                         className="shrink-0 flex flex-col gap-1 px-3 py-2 rounded-xl"
-                        style={{ background: "rgba(0,0,0,0.07)", textDecoration: "none", minWidth: 120 }}
+                        style={{ background: "rgba(0,0,0,0.07)", textDecoration: "none", minWidth: 140 }}
                       >
-                        <span className="text-[10px] font-mono truncate" style={{ color: "rgba(0,0,0,0.5)" }}>{s.id.slice(0, 10)}…</span>
+                        <span className="text-[10px] font-mono truncate" style={{ color: "rgba(0,0,0,0.4)" }}>{s.id.slice(0, 8)}…</span>
                         <span className="text-[11px] font-medium truncate" style={{ color: "rgba(0,0,0,0.75)" }}>
-                          {s.prompt.slice(0, 24)}{s.prompt.length > 24 ? "…" : ""}
+                          {s.prompt.slice(0, 28)}{s.prompt.length > 28 ? "…" : ""}
                         </span>
-                        <span
-                          className="text-[10px] font-semibold"
-                          style={{ color: s.state === "completed" ? "#22c55e" : s.state === "failed" ? "#ef4444" : "#f59e0b" }}
-                        >
+                        <span className="text-[10px] font-semibold"
+                          style={{ color: s.state === "completed" ? "#15803d" : s.state === "failed" ? "#b91c1c" : "#b45309" }}>
                           {s.state}
                         </span>
                       </Link>
@@ -358,7 +427,7 @@ export default function Home() {
                   </div>
                 </div>
               ) : (
-                <div className="mt-8 pt-6 border-t border-black/10 flex items-center justify-between">
+                <div className="mt-6 pt-5 border-t border-black/10 flex items-center justify-between">
                   <p className="text-xs opacity-50">No deployments yet</p>
                   <Link
                     href="/deploy"
