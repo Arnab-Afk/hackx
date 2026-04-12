@@ -6,7 +6,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 
-const ACCENT = "#7c45ff";
+const ACCENT = "#e2f0d9";
 
 type Session = {
   id: string;
@@ -26,7 +26,7 @@ type Provider = {
 };
 
 const STATUS_COLORS = {
-  running:   { text: ACCENT,    bg: "rgba(124,69,255,0.12)" },
+  running:   { text: "#e2f0d9", bg: "rgba(226,240,217,0.1)" },
   completed: { text: "#28A745", bg: "rgba(40,167,69,0.10)" },
   failed:    { text: "#DC3545", bg: "rgba(220,53,69,0.10)" },
 };
@@ -58,14 +58,14 @@ export default function ProviderOverviewPage() {
   const completedCount = sessions.filter((s) => s.state === "completed").length;
 
   return (
-    <div className="flex h-screen" style={{ background: "#0A0A0A", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
+    <div className="flex h-screen" style={{ background: "#111111", fontFamily: "Inter, var(--font-inter), sans-serif", color: "#E5E7EB" }}>
       <Sidebar mode="provider" />
 
       <main className="flex-1 flex flex-col overflow-y-auto">
         <div className="p-8">
           <header className="flex flex-wrap justify-between items-start gap-4 mb-6">
             <div>
-              <p className="text-3xl font-black leading-tight tracking-tight" style={{ color: "#F9FAFB" }}>Provider Overview</p>
+              <p className="text-3xl font-light tracking-tight" style={{ color: "#F9FAFB" }}>Provider Overview</p>
               <p className="text-sm font-mono mt-1" style={{ color: "#6B7280" }}>
                 {provider ? `${provider.Endpoint} · ${provider.Active ? "active" : "inactive"}` : "Manage your hardware and earn USDC from COMPUT3 users"}
               </p>
@@ -86,7 +86,7 @@ export default function ProviderOverviewPage() {
               { label: "Completed Sessions", value: loading ? "…" : String(completedCount), accent: false },
               { label: "Jobs Completed", value: provider ? provider.JobsCompleted : "—", accent: false },
             ].map((c) => (
-              <div key={c.label} className="flex flex-col gap-2 rounded-xl p-4" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+              <div key={c.label} className="flex flex-col gap-2 rounded-3xl p-4" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
                 <p className="text-sm font-medium" style={{ color: "#9CA3AF" }}>{c.label}</p>
                 <p className="text-2xl font-bold font-mono" style={{ color: c.accent ? ACCENT : "#F9FAFB" }}>{c.value}</p>
               </div>
@@ -94,10 +94,10 @@ export default function ProviderOverviewPage() {
           </div>
 
           <h2 className="text-lg font-bold mb-4" style={{ color: "#F9FAFB" }}>Recent Sessions</h2>
-          <div className="rounded-xl overflow-hidden" style={{ background: "#161618", border: "1px solid #2C2C2E" }}>
+          <div className="rounded-3xl overflow-hidden" style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)" }}>
             <div
               className="grid gap-4 px-5 py-3 text-xs font-semibold uppercase tracking-wider"
-              style={{ gridTemplateColumns: "1fr 1fr 140px 80px", color: "#4B5563", borderBottom: "1px solid #2C2C2E", background: "#0A0A0A" }}
+              style={{ gridTemplateColumns: "1fr 1fr 140px 80px", color: "#4B5563", borderBottom: "1px solid rgba(255,255,255,0.06)", background: "#111111" }}
             >
               <span>Session</span>
               <span>Prompt</span>
@@ -154,8 +154,8 @@ export default function ProviderOverviewPage() {
               <Link
                 key={l.label}
                 href={l.href}
-                className="rounded-xl p-4 flex flex-col gap-1 transition-colors"
-                style={{ background: "#161618", border: "1px solid #2C2C2E", textDecoration: "none" }}
+                className="rounded-3xl p-4 flex flex-col gap-1 transition-colors"
+                style={{ background: "#1a1a1a", border: "1px solid rgba(255,255,255,0.07)", textDecoration: "none" }}
                 onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = ACCENT)}
                 onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = "#2C2C2E")}
               >
