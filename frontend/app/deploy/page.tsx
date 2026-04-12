@@ -229,7 +229,7 @@ export default function DeployPage() {
         // Normalise to a single `data` field for the event log
         const evtData =
           evt.type === "plan"    ? evt.plan :
-          evt.type === "message" ? evt.message :
+          evt.type === "message" ? (evt.message ?? "") :
           evt.type === "action"  ? evt.action :
           evt.type === "error"   ? (evt.error ?? evt) :
           evt;
@@ -687,7 +687,7 @@ export default function DeployPage() {
                       const prefix = evt.type === "plan" ? "📋 plan " : evt.type === "done" ? "✓ done " : evt.type === "error" ? "✗ error " : evt.type === "action" ? "⚡ " : "· ";
                       let text: string;
                       if (evt.type === "message") {
-                        text = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data);
+                        text = typeof evt.data === "string" ? evt.data : (evt.data != null ? JSON.stringify(evt.data) : "");
                       } else if (evt.type === "plan") {
                         text = (evt.data as PlanData)?.summary ?? "Plan received";
                       } else if (evt.type === "action") {
@@ -698,8 +698,9 @@ export default function DeployPage() {
                       } else if (evt.type === "error") {
                         text = typeof evt.data === "string" ? evt.data : JSON.stringify(evt.data);
                       } else {
-                        text = JSON.stringify(evt.data);
+                        text = evt.data != null ? JSON.stringify(evt.data) : "";
                       }
+                      if (!text) return null;
                       return (
                         <div key={i} style={{ color, lineHeight: 1.5 }}>
                           <span style={{ color: "#374151" }}>{new Date(evt.ts).toLocaleTimeString()} </span>
