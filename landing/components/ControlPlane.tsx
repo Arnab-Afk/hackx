@@ -104,7 +104,9 @@ export function ControlPlane() {
         {/* CTAs */}
         <div style={{ display: "flex", gap: 12, marginTop: 36 }}>
           <a
-            href="http://localhost:3001"
+            href="https://app.comput3.xyz"
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
               fontSize: 13,
               fontWeight: 500,

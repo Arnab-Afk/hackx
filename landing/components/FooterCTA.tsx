@@ -48,7 +48,7 @@ export function FooterCTA() {
             style={{ display: "flex", maxWidth: 420 }}
             onSubmit={(e) => {
               e.preventDefault()
-              window.location.href = "http://localhost:3001"
+              window.open("https://app.comput3.xyz", "_blank", "noopener,noreferrer")
             }}
           >
             <input

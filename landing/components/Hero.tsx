@@ -87,7 +87,9 @@ export function Hero() {
 
         <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
           <a
-            href="http://localhost:3001"
+            href="https://app.comput3.xyz"
+            target="_blank"
+            rel="noopener noreferrer"
             style={{
               background: "#fff",
               color: "#000",

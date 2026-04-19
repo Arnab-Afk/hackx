@@ -123,7 +123,7 @@ export function Footer() {
             rel="noopener noreferrer"
             style={{ color: "#fff", textDecoration: "none", fontWeight: 600 }}
           >
-            Team Vecna Bytes
+            Team Big(O)
           </a>
         </span>
       </div>
