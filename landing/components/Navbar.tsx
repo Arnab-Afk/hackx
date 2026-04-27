@@ -69,7 +69,9 @@ export function Navbar() {
             GitHub
           </a>
           <a
-            href="http://localhost:3001"
+            href="https://app.comput3.xyz"
+            target="_blank"
+            rel="noopener noreferrer"
             style={{ fontSize: 13, fontWeight: 500, color: "#000", background: "#fff", padding: "6px 14px", borderRadius: 6, textDecoration: "none", transition: "opacity 0.15s" }}
             onMouseEnter={e => ((e.currentTarget as HTMLElement).style.opacity = "0.85")}
             onMouseLeave={e => ((e.currentTarget as HTMLElement).style.opacity = "1")}
