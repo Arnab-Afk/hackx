@@ -297,7 +297,7 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 		}, nil
 
 	case "analyze_repo":
-		url := stringField(input, "github_url")
+		url := sanitizeGitHubURL(stringField(input, "github_url"))
 		if url == "" {
 			return nil, fmt.Errorf("github_url is required")
 		}
@@ -409,8 +409,11 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 
 	case "clone_repo":
 		id := stringField(input, "container_id")
-		url := stringField(input, "github_url")
+		url := sanitizeGitHubURL(stringField(input, "github_url"))
 		dir := stringField(input, "directory")
+		if url == "" {
+			return nil, fmt.Errorf("github_url is required")
+		}
 		// Inject GitHub token for private repos
 		cloneURL := url
 		if s.githubToken != "" && strings.Contains(url, "github.com") {
@@ -683,7 +686,16 @@ func (s *Session) executeToolAndRecord(ctx context.Context, name string, input m
 func extractGitHubURL(input string) string {
 	re := regexp.MustCompile(`https://github\.com/[\w\-.]+/[\w\-.]+`)
 	match := re.FindString(input)
-	return strings.TrimSuffix(match, ".git")
+	return sanitizeGitHubURL(match)
+}
+
+func sanitizeGitHubURL(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "\"'`")
+	s = strings.TrimRight(s, ".,;:!?)]}>")
+	s = strings.TrimSuffix(s, "/")
+	s = strings.TrimSuffix(s, ".git")
+	return s
 }
 
 // hashAction computes a deterministic SHA-256 hash of the action for the audit log.

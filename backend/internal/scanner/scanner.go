@@ -60,6 +60,7 @@ func New(ollamaURL, model string) *Scanner {
 // extractRepoRoot converts a GitHub tree/blob URL to a clonable root URL.
 // e.g. https://github.com/user/repo/tree/main/subdir → https://github.com/user/repo
 func extractRepoRoot(rawURL string) string {
+	rawURL = sanitizeGitHubURL(rawURL)
 	// Match https://github.com/<owner>/<repo>(/...)?
 	parts := strings.SplitN(rawURL, "/", 6) // ["https:", "", "github.com", owner, repo, rest...]
 	if len(parts) >= 5 && strings.Contains(rawURL, "github.com") {
@@ -71,6 +72,7 @@ func extractRepoRoot(rawURL string) string {
 // AnalyzeRepo clones the repo and returns a deployment plan.
 // githubToken is optional — provide it for private repos.
 func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string, githubToken ...string) (*DeploymentPlan, error) {
+	repoURL = sanitizeGitHubURL(repoURL)
 	dir, err := os.MkdirTemp("", "zkloud-scan-*")
 	if err != nil {
 		return nil, fmt.Errorf("create temp dir: %w", err)
@@ -215,6 +217,15 @@ func collectFiles(root string) ([]repoFile, error) {
 // https://github.com/user/repo → https://x-access-token:<token>@github.com/user/repo
 func injectToken(repoURL, token string) string {
 	return strings.Replace(repoURL, "https://github.com/", fmt.Sprintf("https://x-access-token:%s@github.com/", token), 1)
+}
+
+func sanitizeGitHubURL(raw string) string {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "\"'`")
+	s = strings.TrimRight(s, ".,;:!?)]}>")
+	s = strings.TrimSuffix(s, "/")
+	s = strings.TrimSuffix(s, ".git")
+	return s
 }
 
 func readTruncated(path string, maxBytes int) (string, error) {
