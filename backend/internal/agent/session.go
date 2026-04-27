@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -151,6 +152,7 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 	messages := []anthropicMessage{
 		{Role: "user", Content: userPrompt},
 	}
+	consecutiveNoToolTurns := 0
 
 	for {
 		log.Printf("[session %s] calling ollama (turn %d)...", s.ID, len(messages))
@@ -183,8 +185,31 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 			}
 		}
 		if !hasToolUse {
+			consecutiveNoToolTurns++
+			if consecutiveNoToolTurns <= 2 {
+				s.emit(Event{Type: "message", Message: "Model returned text without tool calls; requesting tool-only response..."})
+				messages = append(messages, anthropicMessage{Role: "user", Content: "Use at least one tool call now. Do not reply with plain text. If a GitHub URL exists, call analyze_repo first."})
+				continue
+			}
+
+			// Hard fallback for first turn: bootstrap the expected initial tool sequence.
+			if len(s.Actions) == 0 {
+				if repoURL := extractGitHubURL(userPrompt); repoURL != "" {
+					s.emit(Event{Type: "message", Message: "Bootstrapping deployment planning because the model did not call tools."})
+					if err := s.bootstrapInitialPlan(ctx, repoURL); err != nil {
+						s.State = StateFailed
+						s.emit(Event{Type: "error", Message: err.Error()})
+						return err
+					}
+					consecutiveNoToolTurns = 0
+					messages = append(messages, anthropicMessage{Role: "user", Content: "Planning is confirmed. Continue deployment by calling tools only."})
+					continue
+				}
+			}
+
 			break
 		}
+		consecutiveNoToolTurns = 0
 
 		// Process tool use blocks
 		var toolResults []contentBlock
@@ -610,6 +635,55 @@ func (s *Session) emit(e Event) {
 	default:
 		// drop if buffer full
 	}
+}
+
+func (s *Session) bootstrapInitialPlan(ctx context.Context, repoURL string) error {
+	analyzeResult, err := s.executeToolAndRecord(ctx, "analyze_repo", map[string]any{"github_url": repoURL})
+	if err != nil {
+		return err
+	}
+
+	_, _ = s.executeToolAndRecord(ctx, "select_provider", map[string]any{})
+
+	plan, ok := analyzeResult.(*scanner.DeploymentPlan)
+	if !ok || plan == nil {
+		return fmt.Errorf("bootstrap analyze_repo returned invalid plan")
+	}
+
+	_, err = s.executeToolAndRecord(ctx, "generate_deployment_plan", map[string]any{
+		"summary":                 plan.Summary,
+		"estimated_cost_per_hour": plan.EstimatedCostPerHour,
+		"containers":              plan.Containers,
+		"has_smart_contracts":     plan.HasSmartContracts,
+	})
+	return err
+}
+
+func (s *Session) executeToolAndRecord(ctx context.Context, name string, input map[string]any) (any, error) {
+	result, toolErr := s.executeTool(ctx, name, input)
+
+	action := Action{
+		Index:     len(s.Actions),
+		Tool:      name,
+		Input:     input,
+		Timestamp: time.Now().UTC(),
+	}
+	if toolErr != nil {
+		action.Error = toolErr.Error()
+	} else {
+		action.Result = result
+	}
+	action.Hash = hashAction(action)
+	s.Actions = append(s.Actions, action)
+	s.emit(Event{Type: "action", Action: &action})
+
+	return result, toolErr
+}
+
+func extractGitHubURL(input string) string {
+	re := regexp.MustCompile(`https://github\.com/[\w\-.]+/[\w\-.]+`)
+	match := re.FindString(input)
+	return strings.TrimSuffix(match, ".git")
 }
 
 // hashAction computes a deterministic SHA-256 hash of the action for the audit log.
