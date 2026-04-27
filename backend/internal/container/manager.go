@@ -183,8 +183,9 @@ func (m *Manager) CreateContainer(ctx context.Context, opts CreateOpts) (*Contai
 
 	// Set up an encrypted LUKS volume for /app (the cloned repo + build artefacts).
 	// A unique storage dir is created so each container has its own isolated vault.
+	// 0700 = only the backend process (root) can enter — no other host users can ls it.
 	storageDir := fmt.Sprintf("/vm-storage/containers/%s-%s-%s", opts.TeamID, opts.Name, randomHex(6))
-	if err := os.MkdirAll(storageDir, 0o755); err != nil {
+	if err := os.MkdirAll(storageDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create container storage dir: %w", err)
 	}
 	appPath, luksErr := setupLUKSHome(storageDir, opts.VaultKey)

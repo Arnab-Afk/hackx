@@ -58,9 +58,8 @@ type Session struct {
 
 	mgr             *container.Manager
 	scanner         *scanner.Scanner
-	proxyURL        string // antigravity proxy base URL (used when apiKey is empty)
-	apiKey          string // Anthropic API key for direct calls (preferred)
-	model           string // Claude model for deployment agent
+	ollamaURL       string // Ollama base URL
+	model           string // model for deployment agent
 	events          chan Event
 	rpcURL          string // Base Sepolia RPC URL
 	registryAddress string // ProviderRegistry contract address
@@ -106,9 +105,12 @@ type anthropicResponse struct {
 	StopReason string `json:"stop_reason"`
 }
 
-func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, proxyURL, apiKey, model, rpcURL, registryAddress, githubToken, deployDomain string) *Session {
+func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, ollamaURL, model, rpcURL, registryAddress, githubToken, deployDomain string) *Session {
 	if model == "" {
-		model = "claude-3-5-haiku-20241022"
+		model = "gemma3:4b"
+	}
+	if ollamaURL == "" {
+		ollamaURL = "http://localhost:11434"
 	}
 	return &Session{
 		ID:              id,
@@ -116,8 +118,7 @@ func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, 
 		State:           StateRunning,
 		mgr:             mgr,
 		scanner:         sc,
-		proxyURL:        proxyURL,
-		apiKey:          apiKey,
+		ollamaURL:       ollamaURL,
 		model:           model,
 		events:          make(chan Event, 64),
 		rpcURL:          rpcURL,
@@ -152,15 +153,15 @@ func (s *Session) Run(ctx context.Context, userPrompt string) error {
 	}
 
 	for {
-		log.Printf("[session %s] calling proxy (turn %d)...", s.ID, len(messages))
+		log.Printf("[session %s] calling ollama (turn %d)...", s.ID, len(messages))
 		resp, err := s.callClaude(ctx, messages)
 		if err != nil {
-			log.Printf("[session %s] proxy error: %v", s.ID, err)
+			log.Printf("[session %s] ollama error: %v", s.ID, err)
 			s.State = StateFailed
 			s.emit(Event{Type: "error", Message: err.Error()})
 			return err
 		}
-		log.Printf("[session %s] proxy responded: stop_reason=%s blocks=%d", s.ID, resp.StopReason, len(resp.Content))
+		log.Printf("[session %s] ollama responded: stop_reason=%s blocks=%d", s.ID, resp.StopReason, len(resp.Content))
 
 		// Collect any text blocks to stream to the user
 		var assistantBlocks []contentBlock
@@ -432,40 +433,31 @@ func (s *Session) executeTool(ctx context.Context, name string, input map[string
 }
 
 func (s *Session) callClaude(ctx context.Context, messages []anthropicMessage) (*anthropicResponse, error) {
-	req := anthropicRequest{
-		Model:     s.model,
-		MaxTokens: 4096,
-		System:    systemPrompt,
-		Tools:     toolDefinitions,
-		Messages:  messages,
-	}
+	oaiMessages := convertMessagesToOpenAI(messages)
+	oaiTools := convertToolsToOpenAI(toolDefinitions)
 
+	req := map[string]any{
+		"model":       s.model,
+		"messages":    oaiMessages,
+		"tools":       oaiTools,
+		"tool_choice": "auto",
+		"stream":      false,
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Use direct Anthropic API when key is available, otherwise route through proxy
-	var endpoint, authKey string
-	if s.apiKey != "" {
-		endpoint = "https://api.anthropic.com/v1/messages"
-		authKey = s.apiKey
-	} else {
-		endpoint = strings.TrimRight(s.proxyURL, "/") + "/v1/messages"
-		authKey = "proxy"
-	}
-
+	endpoint := strings.TrimRight(s.ollamaURL, "/") + "/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", authKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("claude API request: %w", err)
+		return nil, fmt.Errorf("ollama request: %w", err)
 	}
 	defer httpResp.Body.Close()
 
@@ -473,16 +465,143 @@ func (s *Session) callClaude(ctx context.Context, messages []anthropicMessage) (
 	if err != nil {
 		return nil, err
 	}
-
 	if httpResp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("claude API error %d: %s", httpResp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("ollama error %d: %s", httpResp.StatusCode, string(respBody))
 	}
 
-	var result anthropicResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("parse claude response: %w", err)
+	var oaiResp openAIChatResponse
+	if err := json.Unmarshal(respBody, &oaiResp); err != nil {
+		return nil, fmt.Errorf("parse ollama response: %w", err)
 	}
-	return &result, nil
+	if len(oaiResp.Choices) == 0 {
+		return nil, fmt.Errorf("empty ollama response")
+	}
+
+	msg := oaiResp.Choices[0].Message
+	blocks := make([]contentBlock, 0, 1+len(msg.ToolCalls))
+	if strings.TrimSpace(msg.Content) != "" {
+		blocks = append(blocks, contentBlock{Type: "text", Text: msg.Content})
+	}
+	for _, tc := range msg.ToolCalls {
+		input := map[string]any{}
+		if strings.TrimSpace(tc.Function.Arguments) != "" {
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &input); err != nil {
+				input = map[string]any{"_raw": tc.Function.Arguments}
+			}
+		}
+		blocks = append(blocks, contentBlock{
+			Type:  "tool_use",
+			ID:    tc.ID,
+			Name:  tc.Function.Name,
+			Input: input,
+		})
+	}
+
+	stop := oaiResp.Choices[0].FinishReason
+	if stop == "tool_calls" {
+		stop = "tool_use"
+	}
+
+	return &anthropicResponse{
+		ID:         oaiResp.ID,
+		Type:       "message",
+		Model:      oaiResp.Model,
+		Content:    blocks,
+		StopReason: stop,
+	}, nil
+}
+
+type openAIChatResponse struct {
+	ID      string `json:"id"`
+	Model   string `json:"model"`
+	Choices []struct {
+		FinishReason string `json:"finish_reason"`
+		Message      struct {
+			Role      string `json:"role"`
+			Content   string `json:"content"`
+			ToolCalls []struct {
+				ID       string `json:"id"`
+				Type     string `json:"type"`
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"message"`
+	} `json:"choices"`
+}
+
+func convertToolsToOpenAI(defs []map[string]any) []map[string]any {
+	tools := make([]map[string]any, 0, len(defs))
+	for _, d := range defs {
+		name, _ := d["name"].(string)
+		desc, _ := d["description"].(string)
+		params, _ := d["input_schema"].(map[string]any)
+		tools = append(tools, map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name":        name,
+				"description": desc,
+				"parameters":  params,
+			},
+		})
+	}
+	return tools
+}
+
+func convertMessagesToOpenAI(messages []anthropicMessage) []map[string]any {
+	out := make([]map[string]any, 0, len(messages)+2)
+	out = append(out, map[string]any{"role": "system", "content": systemPrompt})
+
+	for _, m := range messages {
+		switch c := m.Content.(type) {
+		case string:
+			out = append(out, map[string]any{"role": m.Role, "content": c})
+		case []contentBlock:
+			if m.Role == "assistant" {
+				msg := map[string]any{"role": "assistant", "content": ""}
+				var texts []string
+				var toolCalls []map[string]any
+				for _, b := range c {
+					if b.Type == "text" && b.Text != "" {
+						texts = append(texts, b.Text)
+					}
+					if b.Type == "tool_use" {
+						args, _ := json.Marshal(b.Input)
+						toolCalls = append(toolCalls, map[string]any{
+							"id":   b.ID,
+							"type": "function",
+							"function": map[string]any{
+								"name":      b.Name,
+								"arguments": string(args),
+							},
+						})
+					}
+				}
+				if len(texts) > 0 {
+					msg["content"] = strings.Join(texts, "\n")
+				}
+				if len(toolCalls) > 0 {
+					msg["tool_calls"] = toolCalls
+				}
+				out = append(out, msg)
+			} else if m.Role == "user" {
+				for _, b := range c {
+					if b.Type == "tool_result" {
+						out = append(out, map[string]any{
+							"role":         "tool",
+							"tool_call_id": b.ToolUseID,
+							"content":      b.Content,
+						})
+					}
+				}
+			}
+		default:
+			out = append(out, map[string]any{"role": m.Role, "content": fmt.Sprint(m.Content)})
+		}
+	}
+
+	return out
 }
 
 func (s *Session) emit(e Event) {

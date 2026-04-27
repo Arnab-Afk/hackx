@@ -36,8 +36,7 @@ type Server struct {
 	mgr                *container.Manager
 	scanner            *scanner.Scanner
 	store              *store.Store
-	proxyURL           string
-	apiKey             string
+	ollamaURL          string
 	agentModel         string
 	rpcURL             string
 	registryAddress    string
@@ -52,13 +51,12 @@ type Server struct {
 	deployDomain       string // e.g. "deploy.comput3.xyz"
 }
 
-func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, proxyURL, apiKey, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL, jwtSecret, vaultMasterSecret, deployDomain string) http.Handler {
+func NewServer(mgr *container.Manager, sc *scanner.Scanner, s *store.Store, ollamaURL, agentModel, rpcURL, registryAddress, easSchemaUID, agentWalletKey, githubClientID, githubClientSecret, githubCallbackURL, githubFrontendURL, jwtSecret, vaultMasterSecret, deployDomain string) http.Handler {
 	srv := &Server{
 		mgr:                mgr,
 		scanner:            sc,
 		store:              s,
-		proxyURL:           proxyURL,
-		apiKey:             apiKey,
+		ollamaURL:          ollamaURL,
 		agentModel:         agentModel,
 		rpcURL:             rpcURL,
 		registryAddress:    registryAddress,
@@ -598,14 +596,14 @@ func (s *Server) registerAttestation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) runAgentSession(sessionID, teamID, prompt, repoURL, githubToken string) {
 	ctx := context.Background()
 
-	log.Printf("[session %s] starting — proxy=%s model=%s", sessionID, s.proxyURL, s.agentModel)
+	log.Printf("[session %s] starting — ollama=%s model=%s", sessionID, s.ollamaURL, s.agentModel)
 
 	// If a repo URL was given, prepend it into the prompt so the agent calls analyze_repo
 	if repoURL != "" {
 		prompt = fmt.Sprintf("Analyze and deploy the repository at %s. %s", repoURL, prompt)
 	}
 
-	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.proxyURL, s.apiKey, s.agentModel, s.rpcURL, s.registryAddress, githubToken, s.deployDomain)
+	agentSess := agent.NewSession(sessionID, teamID, s.mgr, s.scanner, s.ollamaURL, s.agentModel, s.rpcURL, s.registryAddress, githubToken, s.deployDomain)
 
 	// Register so /confirm can reach this session
 	sessionRegistry.register(sessionID, agentSess)

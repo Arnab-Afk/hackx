@@ -1,7 +1,6 @@
 package scanner
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -42,20 +41,20 @@ type DeploymentPlan struct {
 	DeploymentSteps      []string         `json:"deployment_steps"`
 }
 
-// Scanner analyzes a GitHub repo and returns a deployment plan using Gemini.
+// Scanner analyzes a GitHub repo and returns a deployment plan using Ollama.
 type Scanner struct {
-	proxyURL string // e.g. http://localhost:8080
-	model    string // e.g. gemini-3.1-pro-high
+	ollamaURL string // e.g. http://localhost:11434
+	model     string // e.g. gemma3:4b
 }
 
-func New(proxyURL, model string) *Scanner {
-	if proxyURL == "" {
-		proxyURL = "http://localhost:8080"
+func New(ollamaURL, model string) *Scanner {
+	if ollamaURL == "" {
+		ollamaURL = "http://localhost:11434"
 	}
 	if model == "" {
-		model = "gemini-3.1-pro-low"
+		model = "gemma3:4b"
 	}
-	return &Scanner{proxyURL: proxyURL, model: model}
+	return &Scanner{ollamaURL: ollamaURL, model: model}
 }
 
 // extractRepoRoot converts a GitHub tree/blob URL to a clonable root URL.
@@ -96,10 +95,10 @@ func (s *Scanner) AnalyzeRepo(ctx context.Context, repoURL string, githubToken .
 		return nil, fmt.Errorf("collect files: %w", err)
 	}
 
-	// Ask Gemini to analyze
-	plan, err := s.analyzeWithGemini(ctx, repoURL, files)
+	// Ask Ollama/Gemma to analyze
+	plan, err := s.analyzeWithOllama(ctx, repoURL, files)
 	if err != nil {
-		return nil, fmt.Errorf("gemini analysis: %w", err)
+		return nil, fmt.Errorf("ollama analysis: %w", err)
 	}
 
 	return plan, nil
@@ -237,8 +236,8 @@ func readTruncated(path string, maxBytes int) (string, error) {
 	return content, nil
 }
 
-// analyzeWithGemini sends collected files to Gemini via the proxy and parses the plan.
-func (s *Scanner) analyzeWithGemini(ctx context.Context, repoURL string, files []repoFile) (*DeploymentPlan, error) {
+// analyzeWithOllama sends collected files to Ollama and parses the plan.
+func (s *Scanner) analyzeWithOllama(ctx context.Context, repoURL string, files []repoFile) (*DeploymentPlan, error) {
 	// Build the file context
 	var sb strings.Builder
 	for _, f := range files {
@@ -284,15 +283,12 @@ Rules:
 - For Hardhat/Foundry projects set has_smart_contracts=true
 - RAM: 512MB databases, 1024-2048MB app containers
 - estimated_cost_per_hour: $0.02-0.10 based on total resource usage
-- deployment_steps: ordered list of what the agent will do`, repoURL, sb.String())
+	- deployment_steps: ordered list of what the agent will do`, repoURL, sb.String())
 
-	// Call proxy (Anthropic-compatible format)
 	reqBody := map[string]any{
-		"model":      s.model,
-		"max_tokens": 4096,
-		"messages": []map[string]any{
-			{"role": "user", "content": prompt},
-		},
+		"model":  s.model,
+		"prompt": prompt,
+		"stream": false,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -300,19 +296,16 @@ Rules:
 		return nil, err
 	}
 
-	url := strings.TrimRight(s.proxyURL, "/") + "/v1/messages"
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	url := strings.TrimRight(s.ollamaURL, "/") + "/api/generate"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(body)))
 	if err != nil {
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	// The proxy uses x-api-key for auth — use a placeholder since it handles auth internally
-	httpReq.Header.Set("x-api-key", "proxy")
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("proxy request: %w", err)
+		return nil, fmt.Errorf("ollama request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -321,37 +314,20 @@ Rules:
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("proxy error %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("ollama error %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	// Parse Anthropic-format response
-	var anthropicResp struct {
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		StopReason string `json:"stop_reason"`
+	var ollamaResp struct {
+		Response string `json:"response"`
 	}
-	if err := json.Unmarshal(respBody, &anthropicResp); err != nil {
+	if err := json.Unmarshal(respBody, &ollamaResp); err != nil {
 		return nil, fmt.Errorf("parse response: %w\nraw: %s", err, string(respBody[:min(len(respBody), 500)]))
 	}
-
-	if len(anthropicResp.Content) == 0 {
-		return nil, fmt.Errorf("empty response from model (stop_reason: %s)\nraw: %s", anthropicResp.StopReason, string(respBody[:min(len(respBody), 500)]))
+	if strings.TrimSpace(ollamaResp.Response) == "" {
+		return nil, fmt.Errorf("empty response from model\nraw: %s", string(respBody[:min(len(respBody), 500)]))
 	}
 
-	// Find the first text block (skip thinking blocks)
-	var rawJSON string
-	for _, block := range anthropicResp.Content {
-		if block.Type == "text" && block.Text != "" {
-			rawJSON = block.Text
-			break
-		}
-	}
-	if rawJSON == "" {
-		return nil, fmt.Errorf("no text block in response (stop_reason: %s, blocks: %d)\nraw: %s",
-			anthropicResp.StopReason, len(anthropicResp.Content), string(respBody[:min(len(respBody), 800)]))
-	}
+	rawJSON := strings.TrimSpace(ollamaResp.Response)
 
 	// Strip markdown fences if the model added them anyway
 	rawJSON = strings.TrimSpace(rawJSON)
