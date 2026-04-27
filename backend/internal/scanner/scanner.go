@@ -44,7 +44,7 @@ type DeploymentPlan struct {
 // Scanner analyzes a GitHub repo and returns a deployment plan using Ollama.
 type Scanner struct {
 	ollamaURL string // e.g. http://localhost:11434
-	model     string // e.g. gemma3:4b
+	model     string // e.g. qwen2.5-coder
 }
 
 func New(ollamaURL, model string) *Scanner {
@@ -52,7 +52,7 @@ func New(ollamaURL, model string) *Scanner {
 		ollamaURL = "http://localhost:11434"
 	}
 	if model == "" {
-		model = "gemma3:4b"
+		model = "qwen2.5-coder"
 	}
 	return &Scanner{ollamaURL: ollamaURL, model: model}
 }
