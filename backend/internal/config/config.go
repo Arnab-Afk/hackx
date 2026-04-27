@@ -42,8 +42,8 @@ func Load() *Config {
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable"),
 		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
 		OllamaURL:   getEnv("OLLAMA_URL", getEnv("PROXY_URL", "http://localhost:11434")),
-		ScanModel:   getEnv("SCAN_MODEL", "gemma3:4b"),
-		AgentModel:  getEnv("AGENT_MODEL", "gemma3:4b"),
+		ScanModel:   getEnv("SCAN_MODEL", "qwen2.5-coder"),
+		AgentModel:  getEnv("AGENT_MODEL", "qwen2.5-coder"),
 
 		BaseSepolia_RPC_URL:     getEnv("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
 		ProviderRegistryAddress: getEnv("PROVIDER_REGISTRY_ADDRESS", "0x889a1EB1489626F39C84b880a67e5eeAE3dD6884"),

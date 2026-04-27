@@ -107,7 +107,7 @@ type anthropicResponse struct {
 
 func NewSession(id, teamID string, mgr *container.Manager, sc *scanner.Scanner, ollamaURL, model, rpcURL, registryAddress, githubToken, deployDomain string) *Session {
 	if model == "" {
-		model = "gemma3:4b"
+		model = "qwen2.5-coder"
 	}
 	if ollamaURL == "" {
 		ollamaURL = "http://localhost:11434"
