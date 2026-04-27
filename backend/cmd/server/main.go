@@ -42,12 +42,12 @@ func main() {
 	}
 	log.Println("docker manager ready")
 
-	// --- Scanner (via proxy — used once per deploy) ---
-	sc := scanner.New(cfg.ProxyURL, cfg.ScanModel)
+	// --- Scanner (via Ollama — used once per deploy) ---
+	sc := scanner.New(cfg.OllamaURL, cfg.ScanModel)
 	log.Println("scanner ready")
 
 	// --- HTTP Server ---
-	handler := api.NewServer(mgr, sc, db, cfg.ProxyURL, "", cfg.AgentModel,
+	handler := api.NewServer(mgr, sc, db, cfg.OllamaURL, cfg.AgentModel,
 		cfg.BaseSepolia_RPC_URL, cfg.ProviderRegistryAddress,
 		cfg.EASSchemaUID, cfg.AgentWalletPrivateKey,
 		cfg.GitHubClientID, cfg.GitHubClientSecret, cfg.GitHubCallbackURL, cfg.GitHubFrontendURL,

@@ -8,9 +8,9 @@ type Config struct {
 	Port        string
 	DatabaseURL string
 	DockerHost  string
-	ProxyURL    string // antigravity-claude-proxy base URL
-	ScanModel   string // model for repo scanning (via proxy)
-	AgentModel  string // model for deployment agent (via proxy)
+	OllamaURL   string // Ollama base URL
+	ScanModel   string // model for repo scanning
+	AgentModel  string // model for deployment agent
 
 	// DeployDomain is the wildcard subdomain base for deployed containers.
 	// e.g. "deploy.comput3.xyz" → containers accessible at {containerID}.deploy.comput3.xyz
@@ -41,9 +41,9 @@ func Load() *Config {
 		Port:        getEnv("PORT", "8080"),
 		DatabaseURL: getEnv("DATABASE_URL", "postgres://hackx:hackx@localhost:5433/hackx?sslmode=disable"),
 		DockerHost:  getEnv("DOCKER_HOST", "unix:///var/run/docker.sock"),
-		ProxyURL:    getEnv("PROXY_URL", "http://localhost:8082"),
-		ScanModel:   getEnv("SCAN_MODEL", "gemini-3.1-pro-low"),
-		AgentModel:  getEnv("AGENT_MODEL", "gemini-3.1-pro-low"),
+		OllamaURL:   getEnv("OLLAMA_URL", getEnv("PROXY_URL", "http://localhost:11434")),
+		ScanModel:   getEnv("SCAN_MODEL", "gemma3:4b"),
+		AgentModel:  getEnv("AGENT_MODEL", "gemma3:4b"),
 
 		BaseSepolia_RPC_URL:     getEnv("BASE_SEPOLIA_RPC_URL", "https://sepolia.base.org"),
 		ProviderRegistryAddress: getEnv("PROVIDER_REGISTRY_ADDRESS", "0x889a1EB1489626F39C84b880a67e5eeAE3dD6884"),
