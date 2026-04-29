@@ -68,6 +68,19 @@ var usedNonces sync.Map // key: nonce hex string → expiry time.Time
 //   - rpcURL:         Base Sepolia RPC endpoint
 //   - agentPrivKey:   private key of the agent wallet (pays gas for transferWithAuthorization)
 //   - storeRef:       optional store for persisting payment records (may be nil)
+//
+// STELLAR INTEGRATION POINT
+// Future: Replace x402 X-PAYMENT header validation with Stellar escrow when
+// STELLAR_MODE=true is set in config.
+//
+//  When using the Stellar payment layer:
+//   1. Check X-STELLAR-SESSION header for a valid session_id
+//   2. Call stellar/scripts/init_escrow.ts to lock USDC in the Soroban contract
+//   3. Skip the EIP-3009 transferWithAuthorization logic below
+//
+// The Soroban DeploymentSession serves the same guarantee as the x402 payment
+// receipt: provider is ensured payment before doing any work.
+// See: stellar/scripts/init_escrow.ts and stellar/docs/architecture.md
 func x402Middleware(providerWallet string, requiredUsdc *big.Int, rpcURL, agentPrivKey string, storeRef *store.Store) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

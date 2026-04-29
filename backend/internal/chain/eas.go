@@ -74,6 +74,23 @@ func init() {
 // SubmitAttestation signs and submits an EAS attest() transaction.
 // privateKeyHex must be a hex-encoded secp256k1 private key (with or without 0x prefix).
 // Returns the tx hash on success.
+//
+// STELLAR INTEGRATION POINT
+// Parallel Stellar proof submission can be triggered alongside this call.
+// Both attestation systems share the same sessionID, actionMerkleRoot, and ipfsCID.
+//
+//  go func() {
+//      stellarResult, err := stellarClient.SubmitProof(
+//          sessionID, actionMerkleRoot, containerStateHash, ipfsCID,
+//      )
+//      if err != nil {
+//          log.Printf("[stellar] parallel proof failed: %v", err)
+//      }
+//  }()
+//
+// The Stellar proof record (stored in Soroban contract storage) mirrors this
+// EAS attestation and can be used as the authoritative source for Stellar-paying
+// deployments. See: stellar/docs/architecture.md
 func SubmitAttestation(ctx context.Context, rpcURL, privateKeyHex, schemaUID string, sessionID, teamID string, actionMerkleRoot, containerStateHash [32]byte, ipfsCID string) (*AttestationResult, error) {
 	client := newRPCClient(rpcURL)
 

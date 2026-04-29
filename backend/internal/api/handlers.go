@@ -663,6 +663,24 @@ func (s *Server) submitAttestation(sessionID, teamID string, actions []agent.Act
 	}
 	merkleRoot := chain.ComputeMerkleRoot(hashes)
 
+	// STELLAR INTEGRATION POINT
+	// After computing the Merkle root, also submit proof to the Stellar
+	// Soroban deployment contract in parallel with the EAS attestation below.
+	// This is a fire-and-forget call — failure does not block the Ethereum flow.
+	//
+	// go func() {
+	//     cmd := exec.CommandContext(ctx,
+	//         "npx", "ts-node", "stellar/scripts/submit_proof.ts",
+	//         "--session_id="+sessionID,
+	//         "--merkle_root="+fmt.Sprintf("0x%x", merkleRoot),
+	//         "--container_state_hash="+fmt.Sprintf("0x%x", containerStateHash),
+	//     )
+	//     if out, err := cmd.CombinedOutput(); err != nil {
+	//         log.Printf("[stellar] proof submission failed: %v\n%s", err, out)
+	//     }
+	// }()
+	// See: stellar/scripts/submit_proof.ts and stellar/docs/architecture.md
+
 	// Container state hash: keccak256 of all action hashes concatenated
 	var containerStateHash [32]byte
 	copy(containerStateHash[:], merkleRoot[:]) // simplified: same as merkle root for demo
